@@ -52,6 +52,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.CleaningServices
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LayersClear
@@ -105,6 +106,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.manhwatranslate.ui.components.AppTopBar
 import com.manhwatranslate.ui.components.GroupCard
+import com.manhwatranslate.ui.components.IconTile
 import com.manhwatranslate.ui.components.NavRow
 import com.manhwatranslate.ui.components.RowDivider
 import com.manhwatranslate.ui.components.SectionTitle
@@ -497,9 +499,14 @@ fun WebReaderScreen(
         ModalBottomSheet(
             onDismissRequest = { settingsOpen = false },
             sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            dragHandle = { SheetHandle() },
         ) {
             WebSettingsSheet(
                 state = state,
+                onClose = { settingsOpen = false },
                 onToggleAds = { viewModel.toggleAdBlock() },
                 onToggleSource = { viewModel.toggleBlockerSource(it) },
                 onToggleReader = { viewModel.setReaderMode(it) },
@@ -671,6 +678,7 @@ private fun AddressBar(
 @Composable
 private fun WebSettingsSheet(
     state: WebReaderUiState,
+    onClose: () -> Unit,
     onToggleAds: () -> Unit,
     onToggleSource: (String) -> Unit,
     onToggleReader: (Boolean) -> Unit,
@@ -688,8 +696,22 @@ private fun WebSettingsSheet(
             .padding(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Trình đọc", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(2.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconTile(icon = Icons.Outlined.Tune)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Cài đặt trình đọc",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onClose) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Đóng",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         GroupCard {
             ToggleRow(
@@ -761,6 +783,16 @@ private fun WebSettingsSheet(
         }
         Spacer(Modifier.height(4.dp))
     }
+}
+
+@Composable
+private fun SheetHandle() {
+    Box(
+        Modifier
+            .padding(top = 10.dp, bottom = 6.dp)
+            .size(width = 36.dp, height = 4.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50)),
+    )
 }
 
 @Composable

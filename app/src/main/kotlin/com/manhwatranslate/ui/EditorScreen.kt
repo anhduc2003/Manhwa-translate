@@ -6,6 +6,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -33,8 +36,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,12 +54,12 @@ import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -93,6 +96,7 @@ import com.manhwatranslate.data.SavedPage
 import com.manhwatranslate.ui.components.AppTopBar
 import com.manhwatranslate.ui.components.Pill
 import com.manhwatranslate.ui.theme.LocalAccents
+import com.manhwatranslate.ui.theme.Motion
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -266,23 +270,29 @@ internal fun EditorContent(
                     CircularProgressIndicator()
                 }
             }
-            if (groupPages.size > 1 && currentIndex >= 0) {
+            AnimatedVisibility(
+                visible = groupPages.size > 1 && currentIndex >= 0,
+                enter = fadeIn(tween(Motion.Panel, easing = Motion.Standard)) +
+                    slideInVertically(tween(Motion.Panel, easing = Motion.Emphasized)) { it / 2 },
+                exit = fadeOut(tween(Motion.Fast)) +
+                    slideOutVertically(tween(Motion.Panel, easing = Motion.Emphasized)) { it / 2 },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp),
+            ) {
                 PageSwitcher(
-                    index = currentIndex,
+                    index = currentIndex.coerceAtLeast(0),
                     count = groupPages.size,
                     onPrevious = if (currentIndex > 0) {
                         { onNavigateToPage(groupPages[currentIndex - 1].id) }
                     } else {
                         null
                     },
-                    onNext = if (currentIndex < groupPages.lastIndex) {
+                    onNext = if (currentIndex in 0 until groupPages.lastIndex) {
                         { onNavigateToPage(groupPages[currentIndex + 1].id) }
                     } else {
                         null
                     },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 12.dp),
                 )
             }
             AnimatedVisibility(
@@ -492,7 +502,8 @@ private fun RegionEditor(
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(top = 12.dp, bottom = 12.dp),
+                .padding(top = 12.dp, bottom = 12.dp)
+                .animateContentSize(tween(Motion.Panel, easing = Motion.Standard)),
         ) {
             val selectedRegion = page.regions.firstOrNull { it.id == state.selectedRegionId }
             if (selectedRegion == null) {
@@ -605,14 +616,28 @@ private fun RegionChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.clickable(onClick = onClick),
-        shape = CircleShape,
-        color = if (selected) {
+    val container by animateColorAsState(
+        targetValue = if (selected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceVariant
         },
+        animationSpec = tween(Motion.Fast, easing = Motion.Standard),
+        label = "chipContainer",
+    )
+    val content by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(Motion.Fast, easing = Motion.Standard),
+        label = "chipContent",
+    )
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = CircleShape,
+        color = container,
         border = if (selected) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
         } else {
@@ -626,22 +651,14 @@ private fun RegionChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                color = content,
             )
             if (text.isNotBlank()) {
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = text,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                    },
+                    color = content.copy(alpha = 0.8f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 150.dp),

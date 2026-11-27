@@ -4,8 +4,12 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,6 +88,7 @@ import com.manhwatranslate.ui.components.IconTile
 import com.manhwatranslate.ui.components.Pill
 import com.manhwatranslate.ui.components.SectionTitle
 import com.manhwatranslate.ui.theme.LocalAccents
+import com.manhwatranslate.ui.theme.Motion
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -190,15 +195,19 @@ internal fun HomeContent(
                 SectionTitle(
                     text = "Thư viện",
                     trailing = if (state.pages.isEmpty()) null else "${state.pages.size} trang",
+                    modifier = Modifier.animateItem(),
                 )
             }
 
             if (state.pages.isEmpty()) {
-                item { EmptyLibrary() }
+                item { EmptyLibrary(modifier = Modifier.animateItem()) }
             } else {
                 items(pageRows.size) { rowIndex ->
                     val rowPages = pageRows[rowIndex]
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.animateItem(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
                         rowPages.forEach { page ->
                             PageCard(
                                 page = page,
@@ -424,8 +433,8 @@ private fun WebReaderRow(onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyLibrary() {
-    GroupCard {
+private fun EmptyLibrary(modifier: Modifier = Modifier) {
+    GroupCard(modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -592,7 +601,15 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
         animationSpec = tween(360),
         label = "processing",
     )
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
     Dialog(onDismissRequest = { }) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(Motion.Panel, easing = Motion.Standard)) +
+                scaleIn(tween(Motion.Panel, easing = Motion.Emphasized), initialScale = 0.92f),
+            exit = fadeOut(tween(Motion.Fast)),
+        ) {
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -646,6 +663,7 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
                     Text("Huỷ")
                 }
             }
+        }
         }
     }
 }
