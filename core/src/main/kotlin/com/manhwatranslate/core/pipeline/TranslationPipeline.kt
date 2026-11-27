@@ -6,6 +6,7 @@ import com.manhwatranslate.core.erase.TextEraser
 import com.manhwatranslate.core.erase.TextMask
 import com.manhwatranslate.core.erase.TextMaskBuilder
 import com.manhwatranslate.core.image.ArgbImage
+import com.manhwatranslate.core.image.Colors
 import com.manhwatranslate.core.layout.FontEstimator
 import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontMode
@@ -50,6 +51,16 @@ data class PipelineOptions(
     val boxExpansion: Float = 1.0f,
     val sfxSensitivity: SfxSensitivity = SfxSensitivity.MEDIUM,
     val matchBackgroundColor: Boolean = true,
+    /**
+     * Tallest slice processed at once. Webtoon strips reach tens of thousands of pixels, more than
+     * a phone can hold as one bitmap; the pipeline works through [maxBandHeight] slices instead and
+     * cuts them at blank rows so no letter is sliced in half. 0 disables slicing.
+     */
+    val maxBandHeight: Int = 6000,
+    /** How far around the ideal cut the search for a blank row may wander. */
+    val bandSearchPx: Int = 320,
+    /** Context kept on each side of a slice so a block near the seam is read whole. */
+    val bandMarginPx: Int = 320,
 )
 
 /**
@@ -78,11 +89,180 @@ class TranslationPipeline(
         options: PipelineOptions,
         onProgress: (PipelineProgress) -> Unit = {},
     ): PageProcessingResult {
+        val bands = planBands(page, options)
+        if (bands.size > 1) return processBands(page, bands, options, onProgress)
+        return processBand(
+            page = page,
+            bandTop = 0,
+            bandBottom = page.height,
+            contextTop = 0,
+            contextBottom = page.height,
+            options = options,
+            onProgress = onProgress,
+            progressBase = 0f,
+            progressSpan = 1f,
+        )
+    }
+
+    /**
+     * Cuts the strip into slices at the quietest rows around the ideal boundary: a row of flat
+     * page (a gutter between panels) never holds lettering, so nothing is split across a seam.
+     */
+    private fun planBands(page: ArgbImage, options: PipelineOptions): List<IntRange> {
+        val limit = options.maxBandHeight
+        if (limit <= 0 || page.height <= limit) return listOf(0 until page.height)
+        val count = (page.height + limit - 1) / limit
+        val bounds = ArrayList<Int>()
+        bounds += 0
+        for (index in 1 until count) {
+            val ideal = (page.height.toLong() * index / count).toInt()
+            bounds += quietestRow(page, ideal, options.bandSearchPx.coerceAtLeast(0))
+        }
+        bounds += page.height
+        val result = ArrayList<IntRange>()
+        for (index in 0 until bounds.size - 1) {
+            val top = bounds[index]
+            val bottom = bounds[index + 1]
+            if (bottom > top) result += top until bottom
+        }
+        return result.ifEmpty { listOf(0 until page.height) }
+    }
+
+    private fun quietestRow(page: ArgbImage, ideal: Int, search: Int): Int {
+        val from = (ideal - search).coerceAtLeast(1)
+        val to = (ideal + search).coerceAtMost(page.height - 1)
+        if (to <= from) return ideal.coerceIn(1, page.height - 1)
+        var bestRow = ideal
+        var bestSpread = Float.MAX_VALUE
+        for (y in from until to) {
+            var sum = 0.0
+            var sumSquares = 0.0
+            var count = 0
+            var x = 0
+            while (x < page.width) {
+                val value = Colors.luminance(page.get(x, y)).toDouble()
+                sum += value
+                sumSquares += value * value
+                count++
+                x += 4
+            }
+            if (count == 0) continue
+            val mean = sum / count
+            val variance = (sumSquares / count - mean * mean).toDouble()
+            val spread = (kotlin.math.sqrt(if (variance > 0) variance else 0.0) + (255.0 - mean) * 0.6).toFloat()
+            if (spread < bestSpread) {
+                bestSpread = spread
+                bestRow = y
+            }
+        }
+        return bestRow.coerceIn(1, page.height - 1)
+    }
+
+    private suspend fun processBands(
+        page: ArgbImage,
+        bands: List<IntRange>,
+        options: PipelineOptions,
+        onProgress: (PipelineProgress) -> Unit,
+    ): PageProcessingResult {
+        val started = System.currentTimeMillis()
+        val cleaned = ArgbImage(page.width, page.height, IntArray(page.width * page.height))
+        val rendered = ArgbImage(page.width, page.height, IntArray(page.width * page.height))
+        val regions = ArrayList<TextRegion>()
+        val translations = ArrayList<RegionTranslation>()
+        val skipped = ArrayList<TextRegion>()
+        val warnings = ArrayList<String>()
+
+        bands.forEachIndexed { index, band ->
+            val base = index.toFloat() / bands.size
+            val span = 1f / bands.size
+            val margin = options.bandMarginPx.coerceAtLeast(0)
+            val contextTop = (band.first - margin).coerceAtLeast(0)
+            val contextBottom = (band.last + 1 + margin).coerceAtMost(page.height)
+            val result = processBand(
+                page = page,
+                bandTop = band.first,
+                bandBottom = band.last + 1,
+                contextTop = contextTop,
+                contextBottom = contextBottom,
+                options = options,
+                onProgress = onProgress,
+                progressBase = base,
+                progressSpan = span,
+            )
+            val coreTop = band.first - contextTop
+            val coreBottom = band.last + 1 - contextTop
+            val coreBox = com.manhwatranslate.core.geometry.RectI(0, coreTop, page.width, coreBottom)
+            cleaned.blit(result.cleanedImage.crop(coreBox), 0, band.first)
+            rendered.blit(result.image.crop(coreBox), 0, band.first)
+            val offset = contextTop
+            val idOffset = regions.size
+            regions += result.regions.map { region ->
+                region.copy(id = region.id + idOffset, box = region.box.translated(0, offset), lines = region.lines.map { it.copy(box = it.box.translated(0, offset)) })
+            }
+            translations += result.translations.map { it.copy(regionId = it.regionId + idOffset) }
+            skipped += result.skipped.map { it.copy(box = it.box.translated(0, offset)) }
+            warnings += result.warnings
+        }
+
+        if (regions.isEmpty() && warnings.none { it.contains("Không tìm thấy") }) {
+            warnings += "Không tìm thấy vùng chữ nào trên trang này"
+        }
+        onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
+        return PageProcessingResult(
+            image = rendered,
+            cleanedImage = cleaned,
+            regions = regions,
+            translations = translations,
+            skipped = skipped,
+            warnings = warnings.distinct(),
+            elapsedMillis = System.currentTimeMillis() - started,
+        )
+    }
+
+    private suspend fun processBand(
+        page: ArgbImage,
+        bandTop: Int,
+        bandBottom: Int,
+        contextTop: Int,
+        contextBottom: Int,
+        options: PipelineOptions,
+        onProgress: (PipelineProgress) -> Unit,
+        progressBase: Float,
+        progressSpan: Float,
+    ): PageProcessingResult {
+        val slice = if (contextTop == 0 && contextBottom == page.height) {
+            page
+        } else {
+            page.crop(com.manhwatranslate.core.geometry.RectI(0, contextTop, page.width, contextBottom))
+        }
+        val coreTop = bandTop - contextTop
+        val coreBottom = bandBottom - contextTop
+        val scoped: (PipelineProgress) -> Unit = { progress ->
+            onProgress(
+                PipelineProgress(
+                    stage = progress.stage,
+                    fraction = progressBase + progress.fraction * progressSpan,
+                    message = progress.message,
+                ),
+            )
+        }
+        scoped(PipelineProgress.of(PipelineStage.PREPARING, 0.02f, "Chuẩn bị trang"))
+        return processSlice(slice, options, scoped, coreTop, coreBottom, contextTop)
+    }
+
+    private suspend fun processSlice(
+        page: ArgbImage,
+        options: PipelineOptions,
+        onProgress: (PipelineProgress) -> Unit,
+        coreTop: Int = 0,
+        coreBottom: Int = Int.MAX_VALUE,
+        pageOffsetY: Int = 0,
+    ): PageProcessingResult {
         val started = System.currentTimeMillis()
         val warnings = ArrayList<String>()
         onProgress(PipelineProgress.of(PipelineStage.PREPARING, 0.02f, "Chuẩn bị trang"))
 
-        val detected = detect(page, options, warnings, onProgress)
+        val detected = detect(page, options, warnings, onProgress, coreTop, coreBottom, pageOffsetY)
         onProgress(PipelineProgress.of(PipelineStage.ERASING, 0.5f, "Xoá chữ gốc"))
         val prepared = prepare(page, detected, options, warnings)
 
@@ -214,6 +394,9 @@ class TranslationPipeline(
         options: PipelineOptions,
         warnings: MutableList<String>,
         onProgress: (PipelineProgress) -> Unit,
+        coreTop: Int = 0,
+        coreBottom: Int = Int.MAX_VALUE,
+        pageOffsetY: Int = 0,
     ): List<TextRegion> {
         val tiles = ImageTiler.split(page, options.maxTileHeight, options.tileOverlap)
         val raw = ArrayList<TextRegion>()
@@ -226,7 +409,13 @@ class TranslationPipeline(
                 ),
             )
             try {
-                raw += recognizer.recognize(tile, options.script)
+                val turned = if (pageOffsetY == 0) {
+                    tile
+                } else {
+                    ImageTile(tile.index, tile.rect.translated(0, pageOffsetY), tile.image)
+                }
+                val found = recognizer.recognize(turned, options.script)
+                raw += if (pageOffsetY == 0) found else found.map { it.translated(0, -pageOffsetY) }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 warnings += "Nhận diện chữ thất bại ở khối ${index + 1}: ${error.message ?: error.javaClass.simpleName}"
@@ -234,6 +423,10 @@ class TranslationPipeline(
         }
         val refined = RegionMerger.refine(raw, mergerOptions)
         val grouped = RegionGrouper.group(page, refined, grouperOptions)
+            .filter { region ->
+                val center = (region.box.top + region.box.bottom) / 2
+                center >= coreTop && center < coreBottom
+            }
         onProgress(
             PipelineProgress.of(
                 PipelineStage.DETECTING,

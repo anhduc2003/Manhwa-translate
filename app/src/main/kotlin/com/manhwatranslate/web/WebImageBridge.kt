@@ -115,8 +115,17 @@ class WebImageBridge(
             if (comma < 0) return@withContext null
             val payload = dataUrl.substring(comma + 1)
             val bytes = runCatching { Base64.decode(payload, Base64.DEFAULT) }.getOrNull() ?: return@withContext null
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sample = 1
+            while (bounds.outWidth > 0 && bounds.outHeight > 0 &&
+                bounds.outWidth.toLong() * bounds.outHeight.toLong() / (sample.toLong() * sample) > maxPixels
+            ) {
+                sample *= 2
+            }
+            val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
             val bitmap = runCatching {
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
             }.getOrNull() ?: return@withContext null
             val pixels = bitmap.width.toLong() * bitmap.height.toLong()
             val scaled = if (pixels > maxPixels) {

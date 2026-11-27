@@ -336,13 +336,13 @@ fun SettingsScreen(
                 SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
                     DropdownSetting(
                         title = "Độ phân giải xử lý",
-                        subtitle = "Giảm nếu máy yếu hoặc ảnh quá dài bị lỗi bộ nhớ",
+                        subtitle = "Ảnh dài được cắt thành dải để xử lý; mức này chỉ giới hạn độ nét",
                         value = "${settings.maxPagePixels / 1_000_000} MP",
                         icon = Icons.Outlined.Palette,
                         options = listOf(
-                            6_000_000 to "6 MP (nhẹ)",
-                            10_000_000 to "10 MP (cân bằng)",
-                            16_000_000 to "16 MP (nét)",
+                            10_000_000 to "10 MP (nhẹ)",
+                            24_000_000 to "24 MP (cân bằng)",
+                            40_000_000 to "40 MP (nét, tốn RAM)",
                         ),
                         onSelect = { value -> viewModel.update { it.copy(maxPagePixels = value) } },
                     )

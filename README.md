@@ -35,8 +35,10 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
   gốc — kể cả phần viền chữ, và ưu tiên số dòng giống bản gốc nên bản dịch không bị vỡ thành cột chữ
   nhỏ. Tự xuống dòng theo từ (hoặc từng ký tự với tiếng Trung/Nhật), tự chọn màu chữ sáng/tối theo
   nền, có viền và bóng đổ.
-- **Ảnh webtoon dài**: trang được cắt thành các dải chồng lấn để OCR, sau đó ghép lại và khử trùng
-  lặp vùng chữ ở mép dải.
+- **Ảnh webtoon dài, không giới hạn chiều cao**: trang được cắt thành các dải chồng lấn để OCR, sau
+  đó ghép lại và khử trùng lặp vùng chữ ở mép dải. Ở tầng pipeline, trang rất cao còn được cắt tiếp
+  thành các dải lớn (mặc định 6 000 px) tại đúng hàng trống giữa các khung, xử lý từng dải rồi ghép
+  — nhờ vậy không chạm giới hạn bitmap/canvas của Android và RAM không phình theo chiều dài trang.
 - **Sửa bản dịch**: chạm vào khung chữ để sửa tay hoặc dịch lại riêng vùng đó; mọi thay đổi được
   vẽ lại và lưu.
 - **Chia sẻ / lưu ảnh**: nhận ảnh từ ứng dụng khác qua menu Chia sẻ, xuất PNG vào thư viện ảnh.
@@ -107,11 +109,14 @@ app, đo độ lệch chuẩn trong từng khung chữ trước và sau khi xoá
 | Trang | Vùng chữ | Xử lý | Bỏ qua (hiệu ứng) | Lệch chuẩn trước → sau | Vùng phẳng hẳn | Pixel đổi ngoài khung | Thời gian |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | page_scan (chụp, nền có vân) | 68 | 53 | 8 | 78.0 → 4.2 | 53/53 | 0 | 1.5 s |
-| page_bw (đen trắng dài) | 23 | 20 | 1 | 87.8 → 4.3 | 20/20 | 0 | 0.8 s |
+| page_bw (đen trắng dài) | 23 | 20 | 1 | 87.8 → 4.1 | 20/20 | 0 | 0.9 s |
 | page_color (màu) | 10 | 8 | 0 | 92.0 → 3.9 | 8/8 | 0 | 0.6 s |
 
+Trang 14 419 px và 13 718 px ở trên được cắt thành 3 dải mỗi trang; số vùng xử lý vẫn đúng bằng
+khi chạy một lượt, nên việc cắt dải không làm mất hay nhân đôi vùng chữ.
+
 Cùng lượt chạy đo thêm hai thứ: mực chữ còn sót trong các khung (162 844 → 778 pixel ở trang chụp,
-102 114 → 102 ở trang đen trắng, 24 349 → 0 ở trang màu) và số vùng có chữ vẽ tràn ra ngoài khung
+102 114 → 58 ở trang đen trắng, 24 349 → 0 ở trang màu) và số vùng có chữ vẽ tràn ra ngoài khung
 (0/53, 0/20, 0/8).
 
 "Pixel đổi ngoài khung" = số pixel bị sửa nằm ngoài mọi hộp chữ đã nhận — bằng 0 nghĩa là thuật

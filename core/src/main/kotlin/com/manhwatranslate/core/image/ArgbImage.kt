@@ -38,6 +38,19 @@ class ArgbImage(
 
     fun copy(): ArgbImage = ArgbImage(width, height, pixels.copyOf())
 
+    /** Copies another image into this one with its top-left corner at ([destLeft], [destTop]). */
+    fun blit(source: ArgbImage, destLeft: Int, destTop: Int) {
+        for (row in 0 until source.height) {
+            val y = destTop + row
+            if (y < 0 || y >= height) continue
+            val srcOffset = row * source.width
+            val dstOffset = y * width + destLeft
+            val count = minOf(source.width, width - destLeft).coerceAtLeast(0)
+            if (count == 0) continue
+            java.lang.System.arraycopy(source.pixels, srcOffset, pixels, dstOffset, count)
+        }
+    }
+
     fun fill(argb: Int) {
         java.util.Arrays.fill(pixels, argb)
     }

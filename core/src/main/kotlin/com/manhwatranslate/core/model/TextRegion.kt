@@ -27,6 +27,11 @@ data class TextRegion(
     val letterCount: Int get() = text.count { it.isLetterOrDigit() }
 
     fun withId(newId: Int): TextRegion = copy(id = newId)
+
+    fun translated(dx: Int, dy: Int): TextRegion = copy(
+        box = box.translated(dx, dy),
+        lines = lines.map { it.copy(box = it.box.translated(dx, dy)) },
+    )
 }
 
 @Serializable

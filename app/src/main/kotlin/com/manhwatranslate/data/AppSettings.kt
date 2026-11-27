@@ -36,7 +36,7 @@ data class AppSettings(
     val lineSpacing: Float = 1.08f,
     val maxLines: Int = 8,
     val boxExpansion: Float = 1.15f,
-    val maxPagePixels: Int = 10_000_000,
+    val maxPagePixels: Int = 24_000_000,
     val keepOriginalOnFailure: Boolean = true,
 ) {
     fun toRenderStyle(): RenderStyle = RenderStyle(

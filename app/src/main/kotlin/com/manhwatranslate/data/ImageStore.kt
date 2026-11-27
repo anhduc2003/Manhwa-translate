@@ -19,11 +19,29 @@ import java.io.IOException
 
 class ImageStore(private val context: Context) {
 
+    companion object {
+        /** Pixel budget for a page held in memory; the pipeline slices taller pages anyway. */
+        const val DEFAULT_MAX_PIXELS = 24_000_000
+    }
+
     suspend fun import(uri: Uri, maxPixels: Int): ArgbImage = withContext(Dispatchers.IO) {
         decodeScaled(uri, maxPixels)
     }
 
-    fun decodeFile(file: File): ArgbImage = decodeBitmapToArgb(BitmapFactory.decodeFile(file.absolutePath))
+    fun decodeFile(file: File, maxPixels: Int = DEFAULT_MAX_PIXELS): ArgbImage {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        var sample = 1
+        while (bounds.outWidth > 0 && bounds.outHeight > 0 &&
+            bounds.outWidth.toLong() * bounds.outHeight.toLong() / (sample.toLong() * sample) > maxPixels
+        ) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: throw IOException("Không đọc được ảnh")
+        return decodeBitmapToArgb(bitmap)
+    }
 
     fun encodePng(image: ArgbImage, file: File) {
         file.parentFile?.mkdirs()

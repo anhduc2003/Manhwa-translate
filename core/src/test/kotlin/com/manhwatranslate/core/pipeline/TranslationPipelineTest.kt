@@ -15,6 +15,7 @@ import com.manhwatranslate.core.scan.ImageTile
 import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.core.translate.TranslationService
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.math.sqrt
@@ -99,5 +100,101 @@ class TranslationPipelineTest {
             grainyBubble(),
             PipelineOptions(script = SourceScript.LATIN, eraseMode = mode),
         ).cleanedImage
+    }
+
+    @Test
+    fun `a very tall page is processed in bands without losing a region`() {
+        val pageHeight = 4000
+        val pageWidth = 900
+        val image = ArgbImage.filled(pageWidth, pageHeight, Colors.opaque(250, 250, 250))
+        val boxes = (0 until 8).map { index ->
+            val top = 260 + index * 460
+            RectI(120, top, 700, top + 40)
+        }
+        for (box in boxes) {
+            for (y in box.top until box.bottom) {
+                for (x in box.left until box.right) image.set(x, y, Colors.opaque(15, 15, 15))
+            }
+        }
+        val pipeline = TranslationPipeline(
+            recognizer = DarkBlocks,
+            translationService = TranslationService(
+                object : TranslationProvider {
+                    override val id = "test"
+                    override val displayName = "Test"
+                    override suspend fun translate(
+                        texts: List<String>,
+                        sourceLanguage: SourceScript,
+                        target: TranslationLanguage,
+                    ): List<String> = texts.map { "DONG $it" }
+                },
+            ),
+            measurer = FakeMonospaceMeasurer(),
+            compositor = object : PageCompositor {
+                override fun compose(page: ArgbImage, items: List<RenderItem>): ArgbImage = page
+            },
+        )
+        val result = runBlocking {
+            pipeline.process(
+                image,
+                PipelineOptions(
+                    script = SourceScript.LATIN,
+                    maxTileHeight = 700,
+                    maxBandHeight = 900,
+                ),
+            )
+        }
+        assertEquals(pageHeight, result.image.height)
+        assertEquals(boxes.size, result.regions.size, "every block should survive the band seams")
+        assertEquals(boxes.size, result.translations.size)
+        result.regions.forEachIndexed { index, region ->
+            assertEquals(boxes[index].top, region.box.top, "region $index moved")
+            assertTrue(
+                Colors.luminance(result.cleanedImage.get(region.box.left + 4, region.box.top + 4)) > 150f,
+                "region $index was not erased",
+            )
+        }
+    }
+
+    /** Finds the dark blocks in whatever slice it is handed, like a real recognizer would. */
+    private object DarkBlocks : TileRecognizer {
+        override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
+            val found = ArrayList<TextRegion>()
+            var currentTop = -1
+            var currentBottom = -1
+            var left = Int.MAX_VALUE
+            var right = -1
+            for (y in 0 until tile.image.height) {
+                var darkRow = false
+                for (x in 0 until tile.image.width) {
+                    if (Colors.luminance(tile.image.get(x, y)) < 100f) {
+                        darkRow = true
+                        left = minOf(left, x)
+                        right = maxOf(right, x + 1)
+                    }
+                }
+                if (darkRow) {
+                    if (currentTop < 0) currentTop = y
+                    currentBottom = y + 1
+                } else if (currentTop >= 0) {
+                    found += blockOf(left, currentTop, right, currentBottom, found.size)
+                    currentTop = -1
+                    left = Int.MAX_VALUE
+                    right = -1
+                }
+            }
+            if (currentTop >= 0) found += blockOf(left, currentTop, right, currentBottom, found.size)
+            return found.map { it.copy(box = it.box.translated(tile.rect.left, tile.rect.top)) }
+        }
+
+        private fun blockOf(left: Int, top: Int, right: Int, bottom: Int, index: Int): TextRegion {
+            val box = RectI(left, top, right, bottom)
+            return TextRegion(
+                id = index,
+                box = box,
+                lines = listOf(TextLine(box, "TEXT BLOCK $index")),
+                text = "TEXT BLOCK $index",
+            )
+        }
     }
 }
