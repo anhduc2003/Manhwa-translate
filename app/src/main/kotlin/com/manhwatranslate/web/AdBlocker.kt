@@ -260,11 +260,11 @@ class AdBlocker(private val assetReader: (String) -> String?) {
             for (var i = 0; i < boxes.length; i++) {
               var d = boxes[i];
               var h = d.clientHeight || 1;
-              var size = Math.max(7, Math.min(h * 0.72, 140));
+              var size = Math.max(7, Math.min(h * 0.58, 140));
               d.style.fontSize = size + 'px';
               var guard = 0;
-              while (d.scrollHeight > d.clientHeight + 1 && size > 6 && guard < 30) {
-                size *= 0.92;
+              while (d.scrollHeight > d.clientHeight + 1 && size > 6 && guard < 40) {
+                size *= 0.9;
                 d.style.fontSize = size + 'px';
                 guard++;
               }
@@ -367,7 +367,7 @@ class AdBlocker(private val assetReader: (String) -> String?) {
               d.textContent = box.x || '';
               layer.appendChild(d);
             });
-            mtFit(layer);
+            requestAnimationFrame(function () { mtFit(layer); });
             return true;
           };
 

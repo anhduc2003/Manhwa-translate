@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.os.Build
 import android.webkit.CookieManager
+import com.manhwatranslate.core.geometry.RectI
 import com.manhwatranslate.core.image.ArgbImage
 import com.manhwatranslate.core.pipeline.OverlayBox
 import com.manhwatranslate.core.model.TranslationProviderType
@@ -208,12 +209,16 @@ class WebImageBridge(
                             "xử lý ${clock.deviceNanos / 1_000_000}ms, " +
                             "dịch ${clock.translateNanos / 1_000_000}ms",
                     )
-                    publishOverlay(image.index, page.width, page.height, boxes)
-                    val patches = ArrayList<String?>(boxes.size)
+                    val areas = boxes.map { box ->
+                        box.box.expanded(maxOf(3, box.box.height / 8))
+                            .clamped(page.width, page.height) ?: box.box
+                    }
+                    publishOverlay(image.index, page.width, page.height, boxes, emptyList(), areas)
+                    val patches = ArrayList<MiGanInpainter.Patch?>(boxes.size)
                     val cleaner = inpainter
                     if (cleaner != null && cleaner.available) {
                         val started = System.currentTimeMillis()
-                        boxes.forEach { patches += cleaner.patch(page, it.box) }
+                        areas.forEach { patches += cleaner.patch(page, it) }
                         detectNanos.addAndGet(System.currentTimeMillis() - started)
                         android.util.Log.d(
                             "WebImageBridge",
@@ -221,7 +226,7 @@ class WebImageBridge(
                                 "vá nền trong ${System.currentTimeMillis() - started}ms",
                         )
                         if (patches.any { it != null }) {
-                            publishOverlay(image.index, page.width, page.height, boxes, patches)
+                            publishOverlay(image.index, page.width, page.height, boxes, patches, areas)
                         }
                     }
                     if (settings.provider != TranslationProviderType.ON_DEVICE && boxes.isNotEmpty()) {
@@ -229,7 +234,7 @@ class WebImageBridge(
                             val started = System.currentTimeMillis()
                             val better = engine.refineOverlay(boxes, settings)
                             translateNanos.addAndGet(System.currentTimeMillis() - started)
-                            publishOverlay(image.index, page.width, page.height, better, patches)
+                            publishOverlay(image.index, page.width, page.height, better, patches, areas)
                         }
                     }
                 } finally {
@@ -270,22 +275,36 @@ class WebImageBridge(
         width: Int,
         height: Int,
         boxes: List<OverlayBox>,
-        patches: List<String?> = emptyList(),
+        patches: List<MiGanInpainter.Patch?> = emptyList(),
+        areas: List<RectI> = emptyList(),
     ) {
         val payload = JSONObject().apply {
             put("w", width)
             put("h", height)
             put("boxes", JSONArray().apply {
                 boxes.forEachIndexed { position, box ->
+                    val area = areas.getOrNull(position) ?: box.box
                     put(
                         JSONObject().apply {
-                            put("l", box.box.left)
-                            put("t", box.box.top)
-                            put("r", box.box.right)
-                            put("b", box.box.bottom)
+                            put("l", area.left)
+                            put("t", area.top)
+                            put("r", area.right)
+                            put("b", area.bottom)
                             put("x", box.text)
-                            put("bg", patches.getOrNull(position) ?: hex(box.background))
-                            put("fg", hex(box.foreground))
+                            val patch = patches.getOrNull(position)
+                            put("bg", patch?.url ?: hex(box.background))
+                            put(
+                                "fg",
+                                hex(
+                                    if (patch == null) {
+                                        box.foreground
+                                    } else if (patch.luminance > 140f) {
+                                        0xFF000000.toInt()
+                                    } else {
+                                        0xFFFFFFFF.toInt()
+                                    },
+                                ),
+                            )
                         },
                     )
                 }

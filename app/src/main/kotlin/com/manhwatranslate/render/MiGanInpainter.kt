@@ -52,10 +52,11 @@ class MiGanInpainter(private val assets: android.content.res.AssetManager) {
      * The bubble with its lettering reconstructed, encoded as a small image the reader can use as
      * the background of the translated text. Returns null when the model is unavailable.
      */
-    suspend fun patch(page: ArgbImage, box: RectI): String? = withContext(Dispatchers.Default) {
+    data class Patch(val url: String, val luminance: Float)
+
+    suspend fun patch(page: ArgbImage, area: RectI): Patch? = withContext(Dispatchers.Default) {
         val model = session ?: return@withContext null
-        val cover = box.expanded(maxOf(6, box.height / 4)).clamped(page.width, page.height)
-            ?: return@withContext null
+        val cover = area.clamped(page.width, page.height) ?: return@withContext null
         val side = (maxOf(cover.width, cover.height) * 1.5f).toInt().coerceAtLeast(TILE / 2)
         val left = (cover.centerX - side / 2).coerceIn(0, maxOf(0, page.width - side))
         val top = (cover.centerY - side / 2).coerceIn(0, maxOf(0, page.height - side))
@@ -111,11 +112,12 @@ class MiGanInpainter(private val assets: android.content.res.AssetManager) {
         right: Int,
         bottom: Int,
         cover: RectI,
-    ): String? {
+    ): Patch? {
         val width = cover.width
         val height = cover.height
         if (width <= 0 || height <= 0) return null
         val pixels = IntArray(width * height)
+        var luminance = 0.0
         val spanX = (right - left).coerceAtLeast(1)
         val spanY = (bottom - top).coerceAtLeast(1)
         for (y in 0 until height) {
@@ -124,6 +126,7 @@ class MiGanInpainter(private val assets: android.content.res.AssetManager) {
                 val tileX = ((cover.left + x - left) * TILE) / spanX
                 val index = tileY.coerceIn(0, TILE - 1) * TILE + tileX.coerceIn(0, TILE - 1)
                 pixels[y * width + x] = tile[index]
+                luminance += Colors.luminance(tile[index])
             }
         }
         val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
@@ -133,7 +136,11 @@ class MiGanInpainter(private val assets: android.content.res.AssetManager) {
             out.toByteArray()
         }
         if (bytes.isEmpty()) return null
-        return "data:image/webp;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val average = (luminance / (width * height)).toFloat()
+        return Patch(
+            url = "data:image/webp;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP),
+            luminance = average,
+        )
     }
 
     private fun RectI.shrunk(share: Float): RectI {
