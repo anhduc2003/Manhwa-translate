@@ -123,11 +123,6 @@ fun WebReaderScreen(
 
     KeepScreenOn(state.keepAwake)
 
-    BackHandler {
-        val view = webView
-        if (view != null && view.canGoBack()) view.goBack() else onBack()
-    }
-
     fun open(input: String) {
         val url = normalizeUrl(input) ?: return
         addressBar = url
@@ -135,10 +130,32 @@ fun WebReaderScreen(
         webView?.loadUrl(url)
     }
 
+    fun pasteAndOpen() {
+        val clip = context.getSystemService(ClipboardManager::class.java)
+        val pasted = clip?.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(context)
+            ?.toString()
+            ?.trim()
+        if (pasted.isNullOrBlank()) {
+            viewModel.showMessage("Bộ nhớ tạm không có link nào")
+        } else {
+            addressBar = pasted
+            open(pasted)
+        }
+    }
+
+    BackHandler {
+        val view = webView
+        if (view != null && view.canGoBack()) view.goBack() else onBack()
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
+            Column {
+                TopAppBar(
                 title = {
                     Column {
                         Text("Đọc truyện trên web", style = MaterialTheme.typography.titleMedium)
@@ -167,10 +184,17 @@ fun WebReaderScreen(
                         Icon(Icons.Outlined.Tune, contentDescription = "Cài đặt web")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
-            )
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
+                )
+                AddressBar(
+                    value = addressBar,
+                    onValueChange = { addressBar = it },
+                    onOpen = { open(addressBar) },
+                    onPaste = { pasteAndOpen() },
+                )
+            }
         },
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
@@ -242,26 +266,6 @@ fun WebReaderScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            AddressBar(
-                value = addressBar,
-                onValueChange = { addressBar = it },
-                onOpen = { open(addressBar) },
-                onPaste = {
-                    val clip = context.getSystemService(ClipboardManager::class.java)
-                    val pasted = clip?.primaryClip
-                        ?.takeIf { it.itemCount > 0 }
-                        ?.getItemAt(0)
-                        ?.coerceToText(context)
-                        ?.toString()
-                        ?.trim()
-                    if (!pasted.isNullOrBlank()) {
-                        addressBar = pasted
-                        open(pasted)
-                    } else {
-                        viewModel.showMessage("Bộ nhớ tạm không có link nào")
-                    }
-                },
-            )
             if (state.loading) {
                 LinearProgressIndicator(
                     progress = { state.progress / 100f },
@@ -279,10 +283,6 @@ fun WebReaderScreen(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         WebView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                            )
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.loadWithOverviewMode = true
@@ -362,6 +362,14 @@ fun WebReaderScreen(
                     },
                     update = { view -> webView = view },
                 )
+                if (addressBar.isBlank() && !state.loading && state.totalImages == 0) {
+                    EmptyReader(
+                        onPaste = { pasteAndOpen() },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                    )
+                }
             }
         }
     }
@@ -397,6 +405,36 @@ fun WebReaderScreen(
                 view.destroy()
             }
             webView = null
+        }
+    }
+}
+
+@Composable
+private fun EmptyReader(onPaste: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp,
+            shape = RoundedCornerShape(20.dp),
+        ) {
+            Column(
+                Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Chưa mở trang truyện nào", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Sao chép link chương truyện, rồi bấm nút bên dưới hoặc dán vào ô phía trên.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(14.dp))
+                Button(onClick = onPaste, shape = RoundedCornerShape(50)) {
+                    Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Dán link và mở")
+                }
+            }
         }
     }
 }
