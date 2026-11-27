@@ -253,34 +253,6 @@ class AdBlocker(private val assetReader: (String) -> String?) {
           if (window.__mtReader) return 0;
           window.__mtReader = true;
           window.__mtImages = [];
-          window.__mtOverlays = [];
-
-          function mtFit(layer) {
-            var boxes = layer.children;
-            for (var i = 0; i < boxes.length; i++) {
-              var d = boxes[i];
-              var h = d.clientHeight || 1;
-              var size = Math.max(7, Math.min(h * 0.58, 140));
-              d.style.fontSize = size + 'px';
-              var guard = 0;
-              while (d.scrollHeight > d.clientHeight + 1 && size > 6 && guard < 40) {
-                size *= 0.9;
-                d.style.fontSize = size + 'px';
-                guard++;
-              }
-            }
-          }
-
-          var mtFitTimer = 0;
-          window.__mtFitAll = function () {
-            clearTimeout(mtFitTimer);
-            mtFitTimer = setTimeout(function () {
-              window.__mtOverlays.forEach(function (wrap) {
-                if (wrap.__mtLayer) mtFit(wrap.__mtLayer);
-              });
-            }, 150);
-          };
-
           window.__mtScan = function () {
             var found = [];
             var images = document.querySelectorAll('img');
@@ -312,81 +284,34 @@ class AdBlocker(private val assetReader: (String) -> String?) {
             }
             return JSON.stringify(found);
           };
-
-          // The page's own image stays exactly as the site served it; the translation is drawn
-          // over it, so nothing is resampled, re-encoded or shrunk on the way back.
-          window.__mtApplyText = function (index, raw) {
+          window.__mtApply = function (index, url) {
             var img = window.__mtImages[index];
             if (!img) return false;
-            var data = raw;
-            try { data = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return false; }
-            var wrap = img.__mtWrap;
-            if (!wrap) {
-              wrap = document.createElement('div');
-              wrap.style.cssText = 'position:relative;display:block;line-height:0;';
-              img.parentNode.insertBefore(wrap, img);
-              wrap.appendChild(img);
-              img.style.display = 'block';
-              if (!img.style.width) img.style.width = '100%';
-              img.__mtWrap = wrap;
-              img.__mtTranslated = true;
-              window.__mtOverlays.push(wrap);
-              window.addEventListener('resize', window.__mtFitAll);
-            }
-            var layer = wrap.__mtLayer;
-            if (!layer) {
-              layer = document.createElement('div');
-              layer.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;' +
-                'pointer-events:none;z-index:2;';
-              wrap.appendChild(layer);
-              wrap.__mtLayer = layer;
-            }
-            layer.textContent = '';
-            var w = data.w || img.naturalWidth || 1;
-            var h = data.h || img.naturalHeight || 1;
-            (data.boxes || []).forEach(function (box) {
-              var d = document.createElement('div');
-              d.style.cssText = 'position:absolute;display:flex;align-items:center;' +
-                'justify-content:center;text-align:center;overflow:hidden;box-sizing:border-box;' +
-                'line-height:1.08;font-weight:700;white-space:pre-wrap;overflow-wrap:anywhere;' +
-                'font-family:"Comic Neue","Bangers",Roboto,sans-serif;border-radius:10px;';
-              d.style.left = (box.l / w * 100) + '%';
-              d.style.top = (box.t / h * 100) + '%';
-              d.style.width = ((box.r - box.l) / w * 100) + '%';
-              d.style.height = ((box.b - box.t) / h * 100) + '%';
-              var bg = box.bg || '#ffffff';
-              if (bg.indexOf('data:') === 0) {
-                d.style.backgroundImage = 'url("' + bg + '")';
-                d.style.backgroundSize = '100% 100%';
-                d.style.backgroundRepeat = 'no-repeat';
-                d.style.borderRadius = '4px';
-              } else {
-                d.style.background = bg;
-              }
-              d.style.color = box.fg || '#111111';
-              d.textContent = box.x || '';
-              layer.appendChild(d);
-            });
-            requestAnimationFrame(function () { mtFit(layer); });
+            if (img.__mtOriginal === undefined) img.__mtOriginal = img.currentSrc || img.src;
+            img.removeAttribute('srcset');
+            img.removeAttribute('sizes');
+            img.removeAttribute('data-src');
+            img.removeAttribute('data-original');
+            img.removeAttribute('data-lazy-src');
+            img.removeAttribute('data-url');
+            img.style.transition = 'opacity .25s ease';
+            img.style.opacity = '0.35';
+            img.addEventListener('load', function () { img.style.opacity = '1'; }, { once: true });
+            img.src = url;
+            img.__mtTranslated = true;
             return true;
           };
-
           window.__mtReset = function () {
             var restored = 0;
-            window.__mtOverlays.forEach(function (wrap) {
-              if (!wrap) return;
-              var img = wrap.querySelector('img');
-              if (wrap.__mtLayer) wrap.removeChild(wrap.__mtLayer);
-              if (img && img.__mtWrap === wrap) {
+            for (var i = 0; i < window.__mtImages.length; i++) {
+              var img = window.__mtImages[i];
+              if (img && img.__mtOriginal) {
+                img.src = img.__mtOriginal;
                 img.__mtTranslated = false;
-                img.__mtWrap = null;
-                img.style.display = '';
-                if (wrap.parentNode) wrap.parentNode.insertBefore(img, wrap);
+                img.style.opacity = '1';
                 restored++;
               }
-              if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
-            });
-            window.__mtOverlays = [];
+            }
             window.__mtImages = [];
             return restored;
           };

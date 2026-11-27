@@ -126,9 +126,9 @@ fun WebReaderScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(Unit) {
-        viewModel.onApplyOverlay = { index, json ->
+        viewModel.onApplyImage = { index, url ->
             webView?.evaluateJavascript(
-                "window.__mtApplyText && window.__mtApplyText($index, ${JSONObject.quote(json)})",
+                "window.__mtApply && window.__mtApply($index, ${JSONObject.quote(url)})",
                 null,
             )
         }
@@ -418,6 +418,15 @@ fun WebReaderScreen(
                                 request: WebResourceRequest,
                             ): WebResourceResponse? {
                                 val url = request.url
+                                if (url.host == WebImageBridge.LOCAL_HOST) {
+                                    val token = url.lastPathSegment
+                                    val body = token?.let { viewModel.bridge.serve(it) }
+                                    return if (body == null) {
+                                        emptyResponse()
+                                    } else {
+                                        WebResourceResponse("image/jpeg", null, ByteArrayInputStream(body))
+                                    }
+                                }
                                 val current = viewModel.state.value
                                 if (current.adBlockEnabled && blocker.shouldBlock(url.toString())) {
                                     return blockedResponse()
@@ -495,7 +504,7 @@ fun WebReaderScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.onApplyOverlay = null
+            viewModel.onApplyImage = null
             webView?.let {
                 it.loadUrl("about:blank")
                 it.destroy()

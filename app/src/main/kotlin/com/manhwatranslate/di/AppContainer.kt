@@ -37,11 +37,6 @@ class AppContainer(context: Context) {
     val adBlocker = AdBlocker.fromAssets(appContext)
     val mlKitRecognizer = MlKitTextRecognizer()
 
-    /** MI-GAN reconstruction of a bubble behind the translated text. */
-    val inpainter: com.manhwatranslate.render.MiGanInpainter by lazy {
-        com.manhwatranslate.render.MiGanInpainter(appContext.assets)
-    }
-
     fun recognizerFor(settings: AppSettings): TileRecognizer = when (settings.ocrProvider) {
         OcrProviderType.ML_KIT -> mlKitRecognizer
         OcrProviderType.PADDLE_OCR -> PaddleOcrRecognizer(

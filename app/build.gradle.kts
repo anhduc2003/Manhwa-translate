@@ -93,7 +93,6 @@ dependencies {
     implementation(libs.mlkit.translate)
 
     implementation(libs.okhttp)
-    implementation(libs.onnxruntime.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 

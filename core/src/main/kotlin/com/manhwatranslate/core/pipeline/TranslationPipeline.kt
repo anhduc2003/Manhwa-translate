@@ -65,15 +65,6 @@ data class PipelineOptions(
     val bandMarginPx: Int = 320,
 )
 
-/** One bubble's translation, placed in page coordinates for drawing over the untouched artwork. */
-data class OverlayBox(
-    val box: RectI,
-    val source: String,
-    val text: String,
-    val background: Int,
-    val foreground: Int,
-)
-
 /**
  * The whole manhwa page flow: scan for text, drop sound effects, erase the lettering, translate
  * it, draw the translation back into the same bubbles with a font matched to the original.
@@ -107,86 +98,6 @@ class TranslationPipeline(
         val skipped: List<TextRegion>,
         val cleaned: ArgbImage,
     )
-
-    /**
-     * Finds the dialogue and translates it without touching a single pixel of the artwork, so a
-     * reader can draw the translation over the original image and keep the page at full quality.
-     */
-    suspend fun analyze(
-        page: ArgbImage,
-        options: PipelineOptions,
-        onProgress: (PipelineProgress) -> Unit = {},
-    ): List<OverlayBox> {
-        val warnings = ArrayList<String>()
-        val detected = detect(page, options, warnings, onProgress)
-        val spoken = detected.filter { region ->
-            !SfxFilter.analyze(page, region, page.width, options.sfxSensitivity).isSoundEffect
-        }
-        if (spoken.isEmpty()) return emptyList()
-        onProgress(
-            PipelineProgress.of(
-                PipelineStage.TRANSLATING,
-                0.62f,
-                "Đang dịch ${spoken.size} vùng chữ",
-            ),
-        )
-        val batch = translationService.translate(
-            regions = spoken,
-            script = options.script,
-            target = options.target,
-            minLetterCount = options.minLetterCount,
-            onProgress = { fraction ->
-                onProgress(
-                    PipelineProgress.of(
-                        PipelineStage.TRANSLATING,
-                        0.62f + 0.3f * fraction,
-                        "Đang dịch ${spoken.size} vùng chữ",
-                    ),
-                )
-            },
-        )
-        val byId = batch.translations.associateBy { it.regionId }
-        onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
-        return spoken.mapNotNull { region ->
-            val translation = byId[region.id] ?: return@mapNotNull null
-            if (translation.translatedText.isBlank()) return@mapNotNull null
-            OverlayBox(
-                box = region.box,
-                source = region.text,
-                text = translation.translatedText,
-                background = bubbleColor(page, region),
-                foreground = contrastingInk(page, region),
-            )
-        }
-    }
-
-    /** The bubble colour: the median of the pixels ringing the text box. */
-    private fun bubbleColor(page: ArgbImage, region: TextRegion): Int {
-        val band = (region.box.height / 3).coerceIn(3, 24)
-        val outer = region.box.expanded(band).clamped(page.width, page.height) ?: return WHITE
-        val inner = region.box.expanded(-2)
-        val samples = ArrayList<Int>()
-        var y = outer.top
-        while (y < outer.bottom) {
-            var x = outer.left
-            while (x < outer.right) {
-                if (inner.width <= 0 || inner.height <= 0 || !inner.contains(x, y)) {
-                    samples += page.get(x, y)
-                }
-                x += 2
-            }
-            y += 2
-        }
-        if (samples.isEmpty()) return WHITE
-        samples.sortBy { Colors.luminance(it) }
-        return samples[samples.size / 2]
-    }
-
-    /** Black or white, whichever reads better on the bubble colour. */
-    private fun contrastingInk(page: ArgbImage, region: TextRegion): Int {
-        val background = Colors.luminance(bubbleColor(page, region))
-        return if (background > 140f) BLACK else WHITE
-    }
 
     suspend fun process(
         page: ArgbImage,
@@ -684,9 +595,6 @@ class TranslationPipeline(
 
         /** Shortest tile the retry pass may use, so the recognizer always gains resolution. */
         const val MIN_RETRY_TILE_HEIGHT = 400
-
-        val WHITE = Colors.opaque(255, 255, 255)
-        val BLACK = Colors.opaque(0, 0, 0)
     }
 
     private fun isFlat(image: ArgbImage): Boolean {
