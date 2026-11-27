@@ -16,6 +16,12 @@ data class WebReaderUiState(
     val loading: Boolean = false,
     val progress: Int = 0,
     val adBlockEnabled: Boolean = true,
+    val blockerSources: Set<String> = emptySet(),
+    val blockerCounts: Map<String, Int> = emptyMap(),
+    val blockerReady: Boolean = false,
+    val readerMode: Boolean = true,
+    val desktopMode: Boolean = false,
+    val keepAwake: Boolean = true,
     val translating: Boolean = false,
     val translatedCount: Int = 0,
     val totalImages: Int = 0,
@@ -27,6 +33,8 @@ class WebReaderViewModel(
     application: Application,
     private val container: AppContainer,
 ) : AndroidViewModel(application) {
+
+    val adBlocker: com.manhwatranslate.web.AdBlocker get() = container.adBlocker
 
     private val _state = MutableStateFlow(WebReaderUiState())
     val state: StateFlow<WebReaderUiState> = _state.asStateFlow()
@@ -61,9 +69,25 @@ class WebReaderViewModel(
     )
 
     init {
-        viewModelScope.launch { settings = container.settingsRepository.current() }
         viewModelScope.launch {
-            container.settingsRepository.settings.collect { settings = it }
+            container.settingsRepository.settings.collect { value ->
+                settings = value
+                container.adBlocker.setEnabledSources(value.webBlockerSources)
+                _state.value = _state.value.copy(
+                    adBlockEnabled = value.webBlockAds,
+                    blockerSources = value.webBlockerSources,
+                    readerMode = value.webReaderMode,
+                    desktopMode = value.webDesktopMode,
+                    keepAwake = value.webKeepAwake,
+                )
+            }
+        }
+        viewModelScope.launch {
+            container.adBlocker.prepare()
+            _state.value = _state.value.copy(
+                blockerReady = container.adBlocker.isReady,
+                blockerCounts = container.adBlocker.sourceCounts(),
+            )
         }
     }
 
@@ -94,6 +118,9 @@ class WebReaderViewModel(
 
     fun toggleAdBlock() {
         val enabled = !_state.value.adBlockEnabled
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(webBlockAds = enabled) }
+        }
         _state.value = _state.value.copy(adBlockEnabled = enabled, clearSignal = _state.value.clearSignal + 1)
     }
 
@@ -105,6 +132,42 @@ class WebReaderViewModel(
             translating = false,
             clearSignal = _state.value.clearSignal + 1,
         )
+    }
+
+    fun toggleBlockerSource(id: String) {
+        val current = _state.value.blockerSources
+        val next = if (id in current) current - id else current + id
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(webBlockerSources = next) }
+        }
+        container.adBlocker.setEnabledSources(next)
+        _state.value = _state.value.copy(blockerSources = next)
+    }
+
+    fun setReaderMode(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(webReaderMode = enabled) } }
+        _state.value = _state.value.copy(readerMode = enabled)
+    }
+
+    fun setDesktopMode(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(webDesktopMode = enabled) } }
+        _state.value = _state.value.copy(desktopMode = enabled)
+    }
+
+    fun setKeepAwake(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(webKeepAwake = enabled) } }
+        _state.value = _state.value.copy(keepAwake = enabled)
+    }
+
+    fun clearCookies() {
+        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+        android.webkit.CookieManager.getInstance().flush()
+        showMessage("Đã xoá cookie của trang")
+    }
+
+    fun clearTranslated() {
+        clearTranslatedPages()
+        showMessage("Đã xoá bản dịch đã lưu trong phiên này")
     }
 
     fun showMessage(text: String) {

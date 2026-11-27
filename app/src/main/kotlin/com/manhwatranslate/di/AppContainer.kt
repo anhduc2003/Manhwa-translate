@@ -20,6 +20,7 @@ import com.manhwatranslate.translate.OpenAiTranslationProvider
 import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.vision.MlKitTextRecognizer
+import com.manhwatranslate.web.AdBlocker
 import com.manhwatranslate.vision.PaddleOcrRecognizer
 
 class AppContainer(context: Context) {
@@ -33,6 +34,7 @@ class AppContainer(context: Context) {
     val fontStore = FontStore(appContext)
     val measurer = AndroidTextMeasurer().apply { setCustomTypeface(fontStore.loadTypeface()) }
     val compositor = CanvasPageCompositor(measurer)
+    val adBlocker = AdBlocker.fromAssets(appContext)
     val mlKitRecognizer = MlKitTextRecognizer()
 
     fun recognizerFor(settings: AppSettings): TileRecognizer = when (settings.ocrProvider) {

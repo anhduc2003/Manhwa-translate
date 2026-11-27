@@ -1,113 +1,166 @@
 package com.manhwatranslate.web
 
+import android.content.Context
+import com.manhwatranslate.core.filter.FilterSet
+import com.manhwatranslate.core.filter.FilterListParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.GZIPInputStream
+
 /**
- * Blocklist and page hygiene rules for manhwa reader sites. Requests to ad and tracker hosts
- * never leave the WebView; a script then cleans what is already in the DOM: ad slots, cookie
- * walls, invisible overlay links that open another site, and popup windows.
+ * Request blocking and page hygiene for manhwa sites. Three open-source lists ship inside the
+ * APK, already distilled to hosts and CSS selectors by `tools/build_filters.py`:
+ *
+ * * EasyList — the main ad list, https://easylist.to (CC BY-SA 3.0).
+ * * EasyPrivacy — trackers, https://easylist.to (CC BY-SA 3.0 / GPLv3).
+ * * Peter Lowe's list — https://pgl.yoyo.org/adservers.
+ *
+ * The user can turn each one off in the reader's settings. A small built-in list covers the
+ * reader sites' own ad slots and popups that the generic lists miss, and a script cleans ad
+ * slots and cookie walls that load no request at all.
  */
-object AdBlocker {
+class AdBlocker(private val assetReader: (String) -> String?) {
 
-    private val blockedHostSuffixes = listOf(
-        "doubleclick.net",
-        "googlesyndication.com",
-        "googleadservices.com",
-        "google-analytics.com",
-        "googletagmanager.com",
-        "googletagservices.com",
-        "adservice.google.com",
-        "adsystem.com",
-        "amazon-adsystem.com",
-        "adnxs.com",
-        "adsrvr.org",
-        "adform.net",
-        "adroll.com",
-        "adcolony.com",
-        "applovin.com",
-        "unityads.unity3d.com",
-        "pubmatic.com",
-        "rubiconproject.com",
-        "openx.net",
-        "criteo.com",
-        "criteo.net",
-        "taboola.com",
-        "outbrain.com",
-        "zedo.com",
-        "popads.net",
-        "popcash.net",
-        "propellerads.com",
-        "propellerads.net",
-        "onclickads.net",
-        "exoclick.com",
-        "exosrv.com",
-        "juicyads.com",
-        "trafficjunky.net",
-        "adsterra.com",
-        "adcash.com",
-        "revenuehits.com",
-        "mgid.com",
-        "revcontent.com",
-        "sharethrough.com",
-        "smartadserver.com",
-        "yieldmo.com",
-        "moatads.com",
-        "scorecardresearch.com",
-        "quantserve.com",
-        "hotjar.com",
-        "mouseflow.com",
-        "yandex.ru/metrika",
-        "mc.yandex.ru",
-        "facebook.net/en_US/fbevents",
-        "connect.facebook.net",
-        "histats.com",
-        "statcounter.com",
-        "clarity.ms",
+    companion object {
+        const val ID_BUILTIN = "builtin"
+        const val ID_EASYLIST = "easylist"
+        const val ID_EASYPRIVACY = "easyprivacy"
+        const val ID_PETER_LOWE = "peterlowe"
+
+        /** Reads the bundled lists straight from the APK's assets. */
+        fun fromAssets(context: Context): AdBlocker = AdBlocker { path ->
+            runCatching {
+                context.assets.open(path).use { stream ->
+                    GZIPInputStream(stream).bufferedReader(Charsets.UTF_8).readText()
+                }
+            }.getOrNull()
+        }
+
+        val SOURCES = listOf(
+            SourceInfo(ID_BUILTIN, "Bộ lọc có sẵn", "Slot quảng cáo của các trang truyện phổ biến", 0),
+            SourceInfo(ID_EASYLIST, "EasyList", "Bộ lọc quảng cáo lớn nhất, mã nguồn mở", 1),
+            SourceInfo(ID_EASYPRIVACY, "EasyPrivacy", "Chặn mã theo dõi và phân tích", 2),
+            SourceInfo(ID_PETER_LOWE, "Peter Lowe", "Danh sách máy chủ quảng cáo", 3),
+        )
+    }
+
+    data class SourceInfo(val id: String, val label: String, val hint: String, val order: Int)
+
+    private val builtinHosts = listOf(
+        "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
+        "amazon-adsystem.com", "adnxs.com", "adsrvr.org", "adform.net", "adroll.com",
+        "pubmatic.com", "rubiconproject.com", "openx.net", "criteo.com", "criteo.net",
+        "taboola.com", "outbrain.com", "zedo.com", "popads.net", "popcash.net",
+        "propellerads.com", "propellerads.net", "onclickads.net", "exoclick.com", "exosrv.com",
+        "juicyads.com", "trafficjunky.net", "adsterra.com", "adcash.com", "mgid.com",
+        "revcontent.com", "sharethrough.com", "smartadserver.com", "yieldmo.com", "moatads.com",
+        "scorecardresearch.com", "quantserve.com", "hotjar.com", "mouseflow.com",
+        "mc.yandex.ru", "connect.facebook.net", "bannerads.com", "adspyglass.com",
+        "google-analytics.com", "googletagmanager.com", "googletagservices.com",
+        "tsyndicate.com", "hilltopads.net", "clickadu.com", "adskeeper.com",
     )
 
-    private val blockedPathPatterns = listOf(
-        Regex("""/ads?[/._-]""", RegexOption.IGNORE_CASE),
-        Regex("""/advert""", RegexOption.IGNORE_CASE),
-        Regex("""/banners?/""", RegexOption.IGNORE_CASE),
-        Regex("""/popunder""", RegexOption.IGNORE_CASE),
-        Regex("""/interstitial""", RegexOption.IGNORE_CASE),
-        Regex("""[?&]ad_?id=""", RegexOption.IGNORE_CASE),
-        Regex("""[?&]utm_(source|medium|campaign)=""", RegexOption.IGNORE_CASE),
-        Regex("""/pagead/""", RegexOption.IGNORE_CASE),
-        Regex("""/prebid""", RegexOption.IGNORE_CASE),
-        Regex("""/gpt\.js""", RegexOption.IGNORE_CASE),
+    val builtinFilter = FilterSet(
+        id = ID_BUILTIN,
+        label = "Bộ lọc có sẵn",
+        blockedHosts = builtinHosts.toSet(),
+        selectors = listOf(
+            "ins.adsbygoogle", ".adsbygoogle", "[id^=\"google_ads\"]", "[id^=\"div-gpt-ad\"]",
+            "[class*=\"ad-slot\"]", "[class*=\"advert\"]", "[data-ad-slot]", "[id*=\"taboola\"]",
+            "[id*=\"outbrain\"]", ".OUTBRAIN", "[class*=\"sponsored\"]",
+            "iframe[src*=\"doubleclick\"]", "iframe[src*=\"googlesyndication\"]",
+            "iframe[src*=\"adservice\"]",
+        ),
     )
 
-    private val blockedExtensions = listOf(".gif?ad", "ad.js", "ads.js", "adframe.js")
+    private val loaded = HashMap<String, FilterSet>()
+    private val loading = AtomicBoolean(false)
+
+    @Volatile
+    private var ready = false
+
+    @Volatile
+    private var enabledSources: Set<String> = SOURCES.map { it.id }.toSet()
+
+    val isReady: Boolean get() = ready
+
+    fun setEnabledSources(ids: Set<String>) {
+        enabledSources = ids
+    }
+
+    fun sourceCounts(): Map<String, Int> = SOURCES.associate { source ->
+        source.id to when (source.id) {
+            ID_BUILTIN -> builtinFilter.domainCount
+            else -> loaded[source.id]?.domainCount ?: 0
+        }
+    }
+
+    /** Loads the bundled lists once; parsing ~100k hosts takes a moment, so it runs off the UI thread. */
+    suspend fun prepare() {
+        if (ready || !loading.compareAndSet(false, true)) return
+        withContext(Dispatchers.IO) {
+            loaded[ID_BUILTIN] = builtinFilter
+            loadList(ID_EASYLIST)
+            loadList(ID_EASYPRIVACY)
+            loadList(ID_PETER_LOWE)
+            ready = true
+        }
+    }
+
+    private fun loadList(id: String) {
+        val domains = assetReader("filters/$id.domains.gz") ?: return
+        val selectors = assetReader("filters/$id.selectors.gz")
+        val (plain, scoped) = if (selectors == null) {
+            emptyList<String>() to emptyList<FilterSet.ScopedSelector>()
+        } else {
+            FilterListParser.parseSelectors(selectors.lineSequence())
+        }
+        loaded[id] = FilterSet(
+            id = id,
+            label = SOURCES.firstOrNull { it.id == id }?.label ?: id,
+            blockedHosts = FilterListParser.parseDomains(domains.lineSequence()),
+            selectors = plain,
+            scopedSelectors = scoped,
+        )
+    }
 
     fun shouldBlock(url: String): Boolean {
         val lower = url.lowercase()
         if (lower.startsWith("data:") || lower.startsWith("about:")) return false
-        for (suffix in blockedHostSuffixes) {
-            if (lower.contains(suffix)) return true
-        }
-        for (pattern in blockedPathPatterns) {
-            if (pattern.containsMatchIn(lower)) return true
-        }
-        for (extension in blockedExtensions) {
-            if (lower.endsWith(extension)) return true
+        val host = hostOf(lower) ?: return false
+        for (source in activeSources()) {
+            if (source.blocksHost(host)) return true
         }
         return false
     }
 
-    /** CSS that hides ad furniture before scripts run, so nothing flashes on screen. */
-    val pageCss: String = """
-        ins.adsbygoogle, .adsbygoogle, [id^="google_ads"], [id^="div-gpt-ad"],
-        [class*="ad-slot"], [class*="ads-"], [class*="advert"], [data-ad-slot],
-        [id*="taboola"], [id*="outbrain"], .OUTBRAIN, [class*="sponsored"],
-        iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
-        [class*="cookie-consent"], [id*="cookie-consent"], [class*="cookie-banner"],
-        [id*="cookie-banner"], [class*="cookie-notice"], .cc-window, .fc-consent-root,
-        [class*="gdpr"], [id*="gdpr"] { display: none !important; visibility: hidden !important; }
-    """.trimIndent()
+    /** CSS for this page: the generic lists' selectors plus the site's own slot rules. */
+    fun cssFor(url: String): String {
+        val host = hostOf(url.lowercase()).orEmpty()
+        val parts = ArrayList<String>()
+        activeSources().forEach { source ->
+            val css = source.cssFor(host)
+            if (css.isNotBlank()) parts += css
+        }
+        parts += COOKIE_SELECTORS
+        return parts.joinToString(",")
+    }
 
-    /**
-     * Runs after every page so ads injected later are also removed. It also drops the invisible
-     * full-screen anchors that only exist to send the reader to another site.
-     */
+    private fun activeSources(): List<FilterSet> {
+        if (!loaded.containsKey(ID_BUILTIN)) loaded[ID_BUILTIN] = builtinFilter
+        return SOURCES.mapNotNull { if (it.id in enabledSources) loaded[it.id] else null }
+    }
+
+    private fun hostOf(url: String): String? {
+        val start = url.indexOf("://")
+        val withoutScheme = if (start >= 0) url.substring(start + 3) else url
+        val end = withoutScheme.indexOfFirst { it == '/' || it == '?' || it == ':' }
+        val host = if (end >= 0) withoutScheme.substring(0, end) else withoutScheme
+        return host.takeIf { it.isNotBlank() && it.contains('.') }
+    }
+
+    /** Cleanup script: ad frames, cookie walls, invisible overlay links and popups. */
     val pageScript: String = """
         (function () {
           if (window.__mtCleaner) { window.__mtCleaner(); return; }
@@ -116,9 +169,7 @@ object AdBlocker {
             '[class*="ad-slot"]', '[class*="advert"]', '[data-ad-slot]', '[id*="taboola"]',
             '[id*="outbrain"]', '.OUTBRAIN', '[class*="sponsored"]',
             'iframe[src*="doubleclick"]', 'iframe[src*="googlesyndication"]',
-            'iframe[src*="adservice"]', '[class*="cookie-consent"]', '[id*="cookie-consent"]',
-            '[class*="cookie-banner"]', '[id*="cookie-banner"]', '[class*="cookie-notice"]',
-            '.cc-window', '.fc-consent-root', '[class*="gdpr"]'
+            'iframe[src*="adservice"]'
           ];
           var COOKIE_TEXT = ['cookie', 'chấp nhận', 'đồng ý', 'accept all', 'consent'];
           var removed = 0;
@@ -130,142 +181,98 @@ object AdBlocker {
             return rect.width > 1 && rect.height > 1;
           }
 
-          function kill(el) {
-            if (!el || !el.parentNode) return;
-            el.parentNode.removeChild(el);
-            removed++;
-          }
-
-          function cleanSelectors() {
-            AD_SELECTORS.forEach(function (sel) {
+          function clean() {
+            AD_SELECTORS.forEach(function (selector) {
               try {
-                document.querySelectorAll(sel).forEach(kill);
-              } catch (e) {}
+                document.querySelectorAll(selector).forEach(function (el) {
+                  el.style.setProperty('display', 'none', 'important');
+                  removed++;
+                });
+              } catch (error) {}
             });
-          }
 
-          function cleanOverlays() {
-            var vw = window.innerWidth, vh = window.innerHeight;
-            var area = vw * vh;
-            document.querySelectorAll('a, div, iframe, ins').forEach(function (el) {
-              if (!visible(el)) return;
-              var style = window.getComputedStyle(el);
-              var rect = el.getBoundingClientRect();
-              var covers = (rect.width * rect.height) > area * 0.55;
-              var floating = style.position === 'fixed' || style.position === 'absolute';
-              var invisible = parseFloat(style.opacity || '1') < 0.08;
-              var tiny = rect.width < 8 || rect.height < 8;
-              var zIndex = parseInt(style.zIndex || '0', 10);
-              var tag = el.tagName.toLowerCase();
-              if (tiny && (tag === 'a' || tag === 'div')) { kill(el); return; }
-              if (covers && floating && (invisible || zIndex > 900)) {
-                if (tag === 'a' || tag === 'ins' || tag === 'iframe') kill(el);
+            document.querySelectorAll('a').forEach(function (anchor) {
+              var style = window.getComputedStyle(anchor);
+              var rect = anchor.getBoundingClientRect();
+              var transparent = style.opacity === '0' || style.visibility === 'hidden';
+              var offscreen = rect.left < -50 || rect.top < -50;
+              var overlay = rect.width > 120 && rect.height > 120 && rect.left <= 2 && rect.top <= 2;
+              if ((transparent || offscreen) && anchor.querySelectorAll('img,div').length > 0) {
+                anchor.remove();
+                removed++;
+              } else if (overlay && anchor.getAttribute('target') === '_blank') {
+                anchor.remove();
+                removed++;
               }
             });
-          }
 
-          function cleanCookieWalls() {
-            document.querySelectorAll('div, section, aside').forEach(function (el) {
-              if (!visible(el)) return;
-              var style = window.getComputedStyle(el);
-              if (style.position !== 'fixed' && style.position !== 'sticky') return;
+            document.querySelectorAll('div,section,aside').forEach(function (el) {
+              if (el.dataset.mtChecked) return;
               var text = (el.innerText || '').toLowerCase();
               if (text.length > 400) return;
               var hits = COOKIE_TEXT.filter(function (word) { return text.indexOf(word) >= 0; }).length;
-              if (hits >= 2) {
-                kill(el);
-                document.body.style.overflow = 'auto';
+              if (hits >= 2 && visible(el)) {
+                el.style.setProperty('display', 'none', 'important');
+                document.documentElement.style.setProperty('overflow', 'auto', 'important');
+                el.dataset.mtChecked = '1';
+                removed++;
               }
             });
+
+            return removed;
           }
-
-          function cleanHiddenLinks() {
-            document.querySelectorAll('a[target="_blank"]').forEach(function (link) {
-              var rect = link.getBoundingClientRect();
-              var style = window.getComputedStyle(link);
-              var transparent = parseFloat(style.opacity || '1') < 0.05;
-              if (transparent && rect.width > 200 && rect.height > 200) kill(link);
-            });
-            document.querySelectorAll('img[onclick]').forEach(function (img) {
-              img.removeAttribute('onclick');
-            });
-          }
-
-          window.addEventListener('click', function (event) {
-            var target = event.target;
-            if (target && target.tagName === 'A') {
-              var href = target.getAttribute('href') || '';
-              if (href.indexOf('javascript:') === 0) event.preventDefault();
-            }
-          }, true);
-
-          window.open = function () { return null; };
 
           window.__mtCleaner = function () {
-            cleanSelectors();
-            cleanOverlays();
-            cleanCookieWalls();
-            cleanHiddenLinks();
-            return removed;
+            try { return clean(); } catch (error) { return 0; }
           };
           window.__mtCleaner();
-          new MutationObserver(function () {
-            if (window.__mtPending) return;
-            window.__mtPending = true;
-            setTimeout(function () { window.__mtPending = false; window.__mtCleaner(); }, 400);
-          }).observe(document.documentElement, { childList: true, subtree: true });
+          if (!window.__mtObserver) {
+            window.__mtObserver = new MutationObserver(function () { window.__mtCleaner(); });
+            window.__mtObserver.observe(document.documentElement, { childList: true, subtree: true });
+          }
         })();
     """.trimIndent()
 
-    /**
-     * Finds the large images of a reader page and ships them to the app, then swaps each one for
-     * the translated page once the app hands back a local URL.
-     */
+    /** Pulls the page's main strip images out for translation. */
     val imageBridgeScript: String = """
         (function () {
-          if (window.__mtImagesInstalled) return 'ready';
-          window.__mtImagesInstalled = true;
-          window.__mtApply = function (index, url) {
-            var img = document.querySelector('img[data-mt-index="' + index + '"]');
-            if (!img) return;
-            img.removeAttribute('srcset');
-            img.src = url;
-            img.style.height = 'auto';
-            img.style.maxWidth = '100%';
-            var parent = img.parentElement;
-            if (parent) parent.style.height = 'auto';
-          };
+          if (window.__mtScanImages) return 0;
+          window.__mtImages = [];
           window.__mtScanImages = function () {
-            var all = Array.prototype.slice.call(document.querySelectorAll('img'));
-            var candidates = all.filter(function (img) {
-              if (img.dataset.mtIndex !== undefined) return false;
-              var rect = img.getBoundingClientRect();
-              var source = img.currentSrc || img.src || '';
-              return img.naturalWidth >= 300 && rect.width >= 120 && source.indexOf('data:') !== 0;
-            });
-            candidates.slice(0, 30).forEach(function (img, index) {
-              img.dataset.mtIndex = String(index);
-              var source = img.currentSrc || img.src;
-              fetch(source, { credentials: 'include' })
-                .then(function (response) { return response.blob(); })
-                .then(function (blob) {
-                  return new Promise(function (resolve, reject) {
-                    var reader = new FileReader();
-                    reader.onload = function () { resolve(reader.result); };
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                  });
-                })
-                .then(function (dataUrl) {
-                  AndroidImages.submit(index, dataUrl, img.naturalWidth, img.naturalHeight);
-                })
-                .catch(function (error) {
-                  AndroidImages.failed(index, String(error));
-                });
-            });
+            var candidates = Array.prototype.slice.call(document.querySelectorAll('img'))
+              .filter(function (img) {
+                var rect = img.getBoundingClientRect();
+                var src = img.currentSrc || img.src || '';
+                if (!src || src.indexOf('data:') === 0) return false;
+                if (img.__mtTranslated) return false;
+                return rect.width >= 200 && rect.height >= 250;
+              });
+            window.__mtImages = candidates;
             return candidates.length;
           };
-          return 'ok';
+          window.__mtTranslateIndex = function (index) {
+            var img = window.__mtImages[index];
+            if (!img) return false;
+            var canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            canvas.getContext('2d').drawImage(img, 0, 0);
+            var data = canvas.toDataURL('image/jpeg', 0.92);
+            window.ManhwaTranslate.submit(index, data, canvas.width, canvas.height);
+            return true;
+          };
+          window.__mtApply = function (index, url) {
+            var img = window.__mtImages[index];
+            if (!img) return false;
+            img.src = url;
+            img.__mtTranslated = true;
+            return true;
+          };
         })();
     """.trimIndent()
+
+    private val COOKIE_SELECTORS =
+        "[class*=\"cookie-consent\"], [id*=\"cookie-consent\"], [class*=\"cookie-banner\"], " +
+            "[id*=\"cookie-banner\"], [class*=\"cookie-notice\"], .cc-window, .fc-consent-root, " +
+            "[class*=\"gdpr\"], [id*=\"gdpr\"]"
 }

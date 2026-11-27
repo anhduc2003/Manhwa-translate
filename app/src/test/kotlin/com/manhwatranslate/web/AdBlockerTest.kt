@@ -6,46 +6,54 @@ import org.junit.jupiter.api.Test
 
 class AdBlockerTest {
 
+    private val blocker = AdBlocker({ null })
+
     @Test
-    fun `blocks known ad and tracker hosts`() {
-        assertTrue(AdBlocker.shouldBlock("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"))
-        assertTrue(AdBlocker.shouldBlock("https://securepubads.g.doubleclick.net/tag/js/gpt.js"))
-        assertTrue(AdBlocker.shouldBlock("https://cdn.taboola.com/libtrc/loader.js"))
-        assertTrue(AdBlocker.shouldBlock("https://s.adsterra.com/banner/123.gif"))
-        assertTrue(AdBlocker.shouldBlock("https://www.google-analytics.com/collect"))
+    fun `the built-in list blocks known ad hosts and their subdomains`() {
+        assertTrue(blocker.builtinFilter.blocksHost("pagead2.googlesyndication.com"))
+        assertTrue(blocker.builtinFilter.blocksHost("securepubads.g.doubleclick.net"))
+        assertTrue(blocker.builtinFilter.blocksHost("cdn.taboola.com"))
+        assertTrue(blocker.builtinFilter.blocksHost("s.adsterra.com"))
+        assertTrue(blocker.builtinFilter.blocksHost("www.google-analytics.com"))
     }
 
     @Test
-    fun `blocks ad shaped paths on normal hosts`() {
-        assertTrue(AdBlocker.shouldBlock("https://cdn.example.com/ads/banner-300x250.png"))
-        assertTrue(AdBlocker.shouldBlock("https://site.example.com/popunder.js"))
-        assertTrue(AdBlocker.shouldBlock("https://site.example.com/pagead/show.html"))
+    fun `chapter images and ordinary assets pass`() {
+        assertFalse(blocker.shouldBlock("https://cdn.mangasite.com/chapters/12/001.jpg"))
+        assertFalse(blocker.shouldBlock("https://cdn.mangasite.com/assets/style.css"))
+        assertFalse(blocker.shouldBlock("https://mangasite.com/chapter/12/"))
+        assertFalse(blocker.shouldBlock("data:image/png;base64,AAAA"))
+        assertFalse(blocker.shouldBlock("about:blank"))
     }
 
     @Test
-    fun `keeps chapter images and page assets`() {
-        assertFalse(AdBlocker.shouldBlock("https://cdn.mangasite.com/chapters/12/001.jpg"))
-        assertFalse(AdBlocker.shouldBlock("https://cdn.mangasite.com/assets/style.css"))
-        assertFalse(AdBlocker.shouldBlock("https://mangasite.com/chapter/12/"))
-        assertFalse(AdBlocker.shouldBlock("data:image/png;base64,AAAA"))
-        assertFalse(AdBlocker.shouldBlock("about:blank"))
+    fun `blocking can be limited to the built-in list`() {
+        blocker.setEnabledSources(setOf(AdBlocker.ID_BUILTIN))
+        assertTrue(blocker.shouldBlock("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"))
+        blocker.setEnabledSources(emptySet())
+        assertFalse(blocker.shouldBlock("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"))
     }
 
     @Test
     fun `the cleaning script targets ads, cookie walls and hidden links`() {
-        val script = AdBlocker.pageScript
+        val script = AdBlocker({ null }).pageScript
         assertTrue(script.contains("adsbygoogle"))
         assertTrue(script.contains("cookie"))
-        assertTrue(script.contains("window.open"))
         assertTrue(script.contains("MutationObserver"))
-        assertTrue(AdBlocker.pageCss.contains("display: none"))
+        assertTrue(script.contains("getBoundingClientRect"))
     }
 
     @Test
     fun `the image bridge exposes the calls the page needs`() {
-        val script = AdBlocker.imageBridgeScript
+        val script = AdBlocker({ null }).imageBridgeScript
         assertTrue(script.contains("__mtApply"))
         assertTrue(script.contains("__mtScanImages"))
-        assertTrue(script.contains("AndroidImages.submit"))
+        assertTrue(script.contains("ManhwaTranslate.submit"))
+    }
+
+    @Test
+    fun `every shipped source has a label and an id`() {
+        assertTrue(AdBlocker.SOURCES.size >= 4)
+        assertTrue(AdBlocker.SOURCES.all { it.label.isNotBlank() && it.id.isNotBlank() })
     }
 }

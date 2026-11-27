@@ -48,8 +48,13 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 - **Sửa bản dịch**: chạm vào khung chữ để sửa tay hoặc dịch lại riêng vùng đó; mọi thay đổi được
   vẽ lại và lưu.
 - **Chia sẻ / lưu ảnh**: nhận ảnh từ ứng dụng khác qua menu Chia sẻ, xuất PNG vào thư viện ảnh.
-- **Trình đọc web**: dán link truyện, ẩn quảng cáo, chặn cửa sổ cookie, gỡ link ẩn hình trong suốt,
-  và dịch ảnh ngay trên trang khi chạm vào ảnh.
+- **Trình đọc web**: thanh địa chỉ luôn hiện (có nút Dán và nút Mở), bảng cài đặt riêng cho web
+  (bật/tắt chặn quảng cáo, chọn từng bộ lọc, chế độ đọc, chế độ máy tính, giữ sáng màn hình, xoá
+  cookie, xoá bản dịch, mở bằng trình duyệt ngoài) và dịch ảnh ngay trên trang.
+- **Chặn quảng cáo bằng bộ lọc thật**: APK nhúng sẵn ba bộ lọc mã nguồn mở — EasyList, EasyPrivacy
+  và danh sách của Peter Lowe — đã được `tools/build_filters.py` rút gọn thành tên miền + CSS ẩn
+  quảng cáo (≈97 000 tên miền, 18 000 selector, 1,9 MB nén). Mỗi bộ bật/tắt được trong Cài đặt web;
+  script trên trang dọn thêm khung quảng cáo, tường cookie và link ẩn trong suốt.
 
 ## Kiến trúc
 
