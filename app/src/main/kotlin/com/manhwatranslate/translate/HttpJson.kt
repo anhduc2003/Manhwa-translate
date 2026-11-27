@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,6 +31,17 @@ internal object HttpJson {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * The keyless public endpoints get a tighter budget: a free source that hangs must lose its
+     * turn to the next one quickly instead of stalling the page for the full read timeout.
+     */
+    val fastClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
     val json = Json {
@@ -57,8 +69,26 @@ internal object HttpJson {
             .url(url)
             .post(body.toRequestBody(jsonMedia))
         headers.forEach { (key, value) -> builder.header(key, value) }
+        execute(builder.build(), client)
+    }
+
+    /** Form-encoded POST, for endpoints that reject a JSON body. */
+    suspend fun postForm(
+        url: String,
+        fields: List<Pair<String, String>>,
+    ): String = withContext(Dispatchers.IO) {
+        val form = FormBody.Builder()
+        fields.forEach { (name, value) -> form.add(name, value) }
+        execute(Request.Builder().url(url).post(form.build()).build(), fastClient)
+    }
+
+    suspend fun get(url: String): String = withContext(Dispatchers.IO) {
+        execute(Request.Builder().url(url).get().build(), fastClient)
+    }
+
+    private fun execute(request: Request, client: OkHttpClient): String {
         val response = try {
-            client.newCall(builder.build()).execute()
+            client.newCall(request).execute()
         } catch (error: Exception) {
             throw TranslationException(
                 "Không kết nối được tới máy chủ dịch: ${error.message}",
@@ -74,7 +104,7 @@ internal object HttpJson {
                     transient = transientFor(result.code),
                 )
             }
-            raw
+            return raw
         }
     }
 

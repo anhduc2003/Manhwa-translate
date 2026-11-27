@@ -34,6 +34,19 @@ interface TranslationProvider {
     ): List<String>
 }
 
+/**
+ * True when a backend handed the batch back unchanged: a model whose moderation fires answers with
+ * its input instead of an error, and counting that as a translation is what left pages sitting in
+ * the original language.
+ */
+internal fun isEchoResult(batch: List<String>, result: List<String>): Boolean {
+    if (batch.size != result.size) return true
+    val letters = batch.indices.any { index ->
+        batch[index].any(Char::isLetter) && batch[index].trim() == result[index].trim()
+    }
+    return letters && batch.indices.all { batch[it].trim() == result[it].trim() }
+}
+
 /** Numbers the pages' texts so a batch call can be matched back to its region reliably. */
 object BatchFormatter {
     private const val SEPARATOR = "\n"

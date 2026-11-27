@@ -65,10 +65,33 @@ enum class TranslationProviderType(
     val requiresApiKey: Boolean,
     val hint: String,
 ) {
+    FREE_AUTO(
+        label = "Miễn phí tích hợp sẵn",
+        requiresApiKey = false,
+        hint = "Không cần API key. Tự chuyển giữa Google Dịch và MyMemory khi một nguồn bị chặn " +
+            "hoặc hết hạn mức; ML Kit trên máy là chốt cuối nên trang không bị bỏ dở.",
+    ),
     ON_DEVICE(
         label = "Trên máy (ML Kit)",
         requiresApiKey = false,
         hint = "Miễn phí, chạy offline sau khi tải gói ngôn ngữ (~30 MB). Chất lượng khá, phù hợp đọc nhanh.",
+    ),
+    GOOGLE_FREE(
+        label = "Google Dịch (miễn phí)",
+        requiresApiKey = false,
+        hint = "Endpoint công khai của Google Dịch, không cần key. Dịch cả trang trong một lượt, " +
+            "chất lượng tốt cho Hàn/Nhật/Trung.",
+    ),
+    MYMEMORY(
+        label = "MyMemory (miễn phí)",
+        requiresApiKey = false,
+        hint = "Miễn phí, không cần key, hạn mức khoảng 5 000 từ mỗi ngày. Hợp làm nguồn dự phòng.",
+    ),
+    LIBRE_TRANSLATE(
+        label = "LibreTranslate (máy chủ riêng)",
+        requiresApiKey = false,
+        hint = "Tự dựng server LibreTranslate là có bộ dịch miễn phí, không hạn mức và không phụ " +
+            "thuộc bên thứ ba.",
     ),
     GOOGLE_CLOUD(
         label = "Google Cloud Translation",
@@ -90,4 +113,12 @@ enum class TranslationProviderType(
         requiresApiKey = true,
         hint = "Cần API key Google AI Studio. Chất lượng cao, miễn phí trong hạn mức.",
     ),
+    ;
+
+    /** True for the sources that ship with the app and never ask the user for a key. */
+    val isBuiltInFree: Boolean get() = this in BUILT_IN_FREE
+
+    companion object {
+        private val BUILT_IN_FREE = setOf(FREE_AUTO, GOOGLE_FREE, MYMEMORY, LIBRE_TRANSLATE)
+    }
 }

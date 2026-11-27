@@ -19,12 +19,15 @@ data class TranslationBatchResult(
  * whole page.
  *
  * A cloud backend can refuse a batch outright, whether on quota or because its own moderation
- * dislikes the dialogue, so a [backup] provider (normally the on-device model) picks those
- * batches up instead of leaving the page in the original language.
+ * dislikes the dialogue, so each [backups] provider is tried in turn — the free sources first,
+ * then the on-device model — instead of leaving the page in the original language.
+ *
+ * A transient failure waits before the retry: an endpoint that just answered 429 fails again
+ * immediately, while a moment's pause usually gets the next call through.
  */
 class TranslationService(
     private val provider: TranslationProvider,
-    private val backup: TranslationProvider? = null,
+    private val backups: List<TranslationProvider> = emptyList(),
     private val maxRetries: Int = 1,
 ) {
 
@@ -100,19 +103,6 @@ class TranslationService(
         return TranslationBatchResult(skipped + translations, warnings)
     }
 
-    /**
-     * A backend that answers with the text it was given has not translated it: a model whose
-     * moderation fires often returns the input instead of an error, and treating that as a
-     * result is what left pages sitting in the original language.
-     */
-    private fun isEcho(batch: List<String>, result: List<String>): Boolean {
-        if (batch.size != result.size) return true
-        val letters = batch.indices.any { index ->
-            batch[index].any(Char::isLetter) && batch[index].trim() == result[index].trim()
-        }
-        return letters && batch.indices.all { batch[it].trim() == result[it].trim() }
-    }
-
     private data class BatchAttempt(val texts: List<String>, val succeeded: Boolean)
 
     private suspend fun translateBatchWithRetry(
@@ -126,7 +116,7 @@ class TranslationService(
         while (attempt <= maxRetries) {
             try {
                 val result = provider.translate(batch, script, target)
-                if (result.size == batch.size && !isEcho(batch, result)) {
+                if (result.size == batch.size && !isEchoResult(batch, result)) {
                     return BatchAttempt(result, true)
                 }
                 lastError = if (result.size != batch.size) {
@@ -140,27 +130,34 @@ class TranslationService(
                 if (error is TranslationFailure && !error.transient) break
             }
             attempt++
+            if (attempt <= maxRetries) {
+                kotlinx.coroutines.delay(retryDelayMillis(attempt))
+            }
         }
-        val fallback = backup
-        if (fallback != null && fallback !== provider) {
-            val reason = lastError?.message ?: "lỗi không xác định"
+
+        val reason = lastError?.message ?: "lỗi không xác định"
+        val rejected = ArrayList<String>()
+        for (fallback in backups) {
+            if (fallback === provider) continue
             val recovered = try {
                 fallback.translate(batch, script, target)
             } catch (error: Throwable) {
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                warnings += "${provider.displayName} và ${fallback.displayName} đều không dịch được " +
-                    "($reason)"
-                return BatchAttempt(batch, false)
+                rejected += "${fallback.displayName}: ${error.message ?: error.javaClass.simpleName}"
+                continue
             }
-            if (recovered.size == batch.size && !isEcho(batch, recovered)) {
+            if (recovered.size == batch.size && !isEchoResult(batch, recovered)) {
                 warnings += "${provider.displayName} không dịch được ($reason), " +
                     "đã chuyển sang ${fallback.displayName}"
                 return BatchAttempt(recovered, true)
             }
-            warnings += "${fallback.displayName} trả về ${recovered.size}/${batch.size} dòng"
-            return BatchAttempt(batch, false)
+            rejected += "${fallback.displayName}: trả về ${recovered.size}/${batch.size} dòng"
         }
-        warnings += "Dịch thất bại (${provider.displayName}): ${lastError?.message ?: "lỗi không xác định"}"
+        val suffix = if (rejected.isEmpty()) "" else " (${rejected.joinToString("; ")})"
+        warnings += "Dịch thất bại (${provider.displayName}): $reason$suffix"
         return BatchAttempt(batch, false)
     }
+
+    /** 400 ms, then 800, then 1 600 — long enough for a rate limiter to reset, short enough to keep. */
+    private fun retryDelayMillis(attempt: Int): Long = (400L shl (attempt - 1).coerceAtMost(2)).coerceAtMost(1_600L)
 }

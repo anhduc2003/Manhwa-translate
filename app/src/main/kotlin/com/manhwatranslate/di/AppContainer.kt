@@ -13,9 +13,13 @@ import com.manhwatranslate.pipeline.TranslationEngine
 import com.manhwatranslate.render.AndroidTextMeasurer
 import com.manhwatranslate.render.CanvasPageCompositor
 import com.manhwatranslate.translate.DeepLTranslationProvider
+import com.manhwatranslate.translate.FreeProviders
 import com.manhwatranslate.translate.GeminiTranslationProvider
 import com.manhwatranslate.translate.GoogleCloudTranslationProvider
+import com.manhwatranslate.translate.GoogleFreeTranslationProvider
+import com.manhwatranslate.translate.LibreTranslateProvider
 import com.manhwatranslate.translate.MlKitTranslationProvider
+import com.manhwatranslate.translate.MyMemoryTranslationProvider
 import com.manhwatranslate.translate.OpenAiTranslationProvider
 import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.pipeline.TileRecognizer
@@ -52,13 +56,15 @@ class AppContainer(context: Context) {
         compositor = compositor,
         backupRecognizer = mlKitRecognizer,
         providerResolver = { settings -> providerFor(settings) },
-        backupResolver = { settings ->
-            if (settings.provider == TranslationProviderType.ON_DEVICE) null else onDeviceTranslator
-        },
+        backupsResolver = { settings -> backupsFor(settings) },
     )
 
     fun providerFor(settings: AppSettings): TranslationProvider = when (settings.provider) {
+        TranslationProviderType.FREE_AUTO -> FreeProviders.chain(settings.libreTranslateUrl)
         TranslationProviderType.ON_DEVICE -> onDeviceTranslator
+        TranslationProviderType.GOOGLE_FREE -> GoogleFreeTranslationProvider()
+        TranslationProviderType.MYMEMORY -> MyMemoryTranslationProvider()
+        TranslationProviderType.LIBRE_TRANSLATE -> LibreTranslateProvider(settings.libreTranslateUrl)
         TranslationProviderType.GOOGLE_CLOUD -> GoogleCloudTranslationProvider(
             requireKey(settings.provider),
         )
@@ -75,6 +81,18 @@ class AppContainer(context: Context) {
             apiKey = requireKey(settings.provider),
             model = settings.geminiModel,
         )
+    }
+
+    /**
+     * What picks up a batch the chosen backend refused: the keyless sources first, because they
+     * read better than the on-device model, and the on-device model last because it always
+     * answers, offline included. Automatic mode already runs the free sources, so only the
+     * on-device model is left behind it.
+     */
+    private fun backupsFor(settings: AppSettings): List<TranslationProvider> = when {
+        settings.provider == TranslationProviderType.ON_DEVICE -> emptyList()
+        settings.provider == TranslationProviderType.FREE_AUTO -> listOf(onDeviceTranslator)
+        else -> listOf(FreeProviders.chain(settings.libreTranslateUrl), onDeviceTranslator)
     }
 
     private fun requireKey(provider: TranslationProviderType): String =

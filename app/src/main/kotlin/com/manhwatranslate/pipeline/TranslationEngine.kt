@@ -25,7 +25,7 @@ class TranslationEngine(
     private val measurer: AndroidTextMeasurer,
     private val compositor: PageCompositor,
     private val providerResolver: (AppSettings) -> TranslationProvider,
-    private val backupResolver: (AppSettings) -> TranslationProvider? = { null },
+    private val backupsResolver: (AppSettings) -> List<TranslationProvider> = { emptyList() },
     private val backupRecognizer: TileRecognizer? = null,
 ) {
 
@@ -38,7 +38,7 @@ class TranslationEngine(
             recognizer = recognizerResolver(settings),
             translationService = TranslationService(
                 providerResolver(settings),
-                backup = backupResolver(settings),
+                backups = backupsResolver(settings),
             ),
             measurer = measurer,
             compositor = compositor,
@@ -62,7 +62,7 @@ class TranslationEngine(
         if (result.regions.isEmpty()) return result
         val service = TranslationService(
             providerResolver(settings),
-            backup = backupResolver(settings),
+            backups = backupsResolver(settings),
         )
         val options = settings.toPipelineOptions()
         val batch = service.translate(
@@ -91,7 +91,7 @@ class TranslationEngine(
             recognizer = recognizerResolver(settings),
             translationService = TranslationService(
                 providerResolver(settings),
-                backup = backupResolver(settings),
+                backups = backupsResolver(settings),
             ),
             measurer = measurer,
             compositor = compositor,
