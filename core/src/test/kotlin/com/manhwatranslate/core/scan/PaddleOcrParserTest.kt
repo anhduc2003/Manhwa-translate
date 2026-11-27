@@ -52,4 +52,45 @@ class PaddleOcrParserTest {
     fun `a non json answer yields nothing instead of throwing`() {
         assertTrue(PaddleOcrParser.parse("<html>502 bad gateway</html>").isEmpty())
     }
+
+    @Test
+    fun `reads the PaddleOCR 3 parallel arrays`() {
+        val raw = """
+            {"input_path":"page.jpg","page_index":null,
+             "rec_texts":["AMEGASCANS","145","WH-WHAT'S"],
+             "rec_scores":[0.956,0.999,0.988],
+             "rec_polys":[[[170,86],[546,86],[546,134],[170,134]],
+                          [[521,319],[604,319],[604,370],[521,370]],
+                          [[210,5644],[346,5644],[346,5671],[210,5671]]],
+             "rec_boxes":[[170,86,546,134],[521,319,604,370],[210,5644,346,5671]]}
+        """.trimIndent()
+        val regions = PaddleOcrParser.parse(raw, offsetY = 1000)
+        assertEquals(3, regions.size)
+        assertEquals(RectI(170, 1086, 546, 1134), regions[0].box)
+        assertEquals("145", regions[1].text)
+        assertEquals("WH-WHAT'S", regions[2].text)
+        assertEquals(0.988f, regions[2].confidence)
+    }
+
+    @Test
+    fun `falls back to rec_boxes when polygons are missing`() {
+        val raw = """
+            {"rec_texts":["HELLO, SEINA."],"rec_scores":[0.99],"rec_boxes":[[10,20,180,60]]}
+        """.trimIndent()
+        val regions = PaddleOcrParser.parse(raw, offsetX = 4, offsetY = 0)
+        assertEquals(1, regions.size)
+        assertEquals(RectI(14, 20, 184, 60), regions[0].box)
+    }
+
+    @Test
+    fun `reads the PaddleX serving envelope`() {
+        val raw = """
+            {"result":{"rec_texts":["AND HE WANTED TO"],"rec_scores":[0.95],
+                       "rec_polys":[[[206,13284],[520,13284],[520,13319],[206,13319]]]}}
+        """.trimIndent()
+        val regions = PaddleOcrParser.parse(raw)
+        assertEquals(1, regions.size)
+        assertEquals(RectI(206, 13284, 520, 13319), regions[0].box)
+        assertEquals("AND HE WANTED TO", regions[0].text)
+    }
 }

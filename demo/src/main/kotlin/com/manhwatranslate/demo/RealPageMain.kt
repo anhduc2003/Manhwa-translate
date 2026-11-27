@@ -98,6 +98,12 @@ fun main(args: Array<String>) {
     println("Vùng có chữ tràn khỏi khung: $overflows/${result.regions.size}")
     println("Thời gian: ${elapsed}ms")
     println()
+    if (System.getProperty("regiondebug") != null) {
+        println("Tất cả vùng:")
+        result.regions.forEach { region ->
+            println("  ${region.box} lines=${region.lines.size} \"${region.text.take(40)}\"")
+        }
+    }
     println("Vùng chưa phẳng hẳn:")
     stats.forEachIndexed { index, (before, after) ->
         if (after >= before * 0.5f) {

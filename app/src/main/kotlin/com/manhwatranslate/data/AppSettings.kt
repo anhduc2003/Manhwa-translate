@@ -26,7 +26,7 @@ data class AppSettings(
     val fontWeight: FontWeightLevel? = null,
     val autoSizeFromOriginal: Boolean = true,
     val customFontName: String = "",
-    val sfxSensitivity: SfxSensitivity = SfxSensitivity.OFF,
+    val sfxSensitivity: SfxSensitivity = SfxSensitivity.LOW,
     val matchBackgroundColor: Boolean = true,
     val autoContrast: Boolean = true,
     val textColor: Int = 0xFF101010.toInt(),
