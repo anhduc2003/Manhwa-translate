@@ -28,6 +28,7 @@ import com.manhwatranslate.core.scan.ImageTiler
 import com.manhwatranslate.core.scan.ImageTile
 import com.manhwatranslate.core.scan.RegionGrouper
 import com.manhwatranslate.core.scan.RegionMerger
+import com.manhwatranslate.core.scan.RegionSplitter
 import com.manhwatranslate.core.scan.SfxFilter
 import com.manhwatranslate.core.scan.SfxSensitivity
 import com.manhwatranslate.core.translate.TranslationService
@@ -75,6 +76,7 @@ class TranslationPipeline(
     private val maskBuilder: TextMaskBuilder = TextMaskBuilder(),
     private val mergerOptions: RegionMerger.Options = RegionMerger.Options(),
     private val grouperOptions: RegionGrouper.Options = RegionGrouper.Options(),
+    private val splitterOptions: RegionSplitter.Options = RegionSplitter.Options(),
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
     private val aggressiveMaskOptions = TextMaskBuilder.Options(
@@ -428,11 +430,12 @@ class TranslationPipeline(
             }
         }
         val refined = RegionMerger.refine(raw, mergerOptions)
-        val grouped = RegionGrouper.group(page, refined, grouperOptions)
+        val grouped = RegionSplitter.split(page, RegionGrouper.group(page, refined, grouperOptions), splitterOptions)
             .filter { region ->
                 val center = (region.box.top + region.box.bottom) / 2
                 center >= coreTop && center < coreBottom
             }
+            .mapIndexed { index, region -> region.copy(id = index) }
         onProgress(
             PipelineProgress.of(
                 PipelineStage.DETECTING,
