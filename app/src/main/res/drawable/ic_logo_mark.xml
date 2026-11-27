@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The app icon's own mark with the tile left out: the same bubble, lines and sparkle as
+  drawable/ic_launcher.xml, filled with the brand gradient so it still reads on the light and the
+  dark background. The viewport is cropped to the mark so it fills whatever box it is drawn into;
+  keep the paths in step with ic_launcher.xml.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="80dp"
+    android:height="62dp"
+    android:viewportWidth="80"
+    android:viewportHeight="62">
+
+    <group
+        android:translateX="-16"
+        android:translateY="-28">
+
+        <path android:pathData="M26,30 L82,30 A10,10 0 0 1 92,40 L92,66 A10,10 0 0 1 82,76 L46,76 L34,88 L36,76 L26,76 A10,10 0 0 1 16,66 L16,40 A10,10 0 0 1 26,30 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:endX="92"
+                    android:endY="88"
+                    android:startX="16"
+                    android:startY="30"
+                    android:type="linear">
+                    <item
+                        android:color="#FF8A5B4B"
+                        android:offset="0" />
+                    <item
+                        android:color="#FF6B3FA0"
+                        android:offset="1" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <path
+            android:fillColor="#FFFDF8F4"
+            android:pathData="M30,42 h44 a3,3 0 0 1 3,3 v3 a3,3 0 0 1 -3,3 h-44 a3,3 0 0 1 -3,-3 v-3 a3,3 0 0 1 3,-3 z" />
+        <path
+            android:fillColor="#FFF0E4DC"
+            android:pathData="M30,54 h30 a3,3 0 0 1 3,3 v3 a3,3 0 0 1 -3,3 h-30 a3,3 0 0 1 -3,-3 v-3 a3,3 0 0 1 3,-3 z" />
+        <path
+            android:fillColor="#FFD9B08C"
+            android:pathData="M30,66 h18 a3,3 0 0 1 3,3 v2 a3,3 0 0 1 -3,3 h-18 a3,3 0 0 1 -3,-3 v-2 a3,3 0 0 1 3,-3 z" />
+
+        <path
+            android:fillColor="#FFFFD166"
+            android:pathData="M80,58 l4,10 l10,4 l-10,4 l-4,10 l-4,-10 l-10,-4 l10,-4 z" />
+    </group>
+</vector>

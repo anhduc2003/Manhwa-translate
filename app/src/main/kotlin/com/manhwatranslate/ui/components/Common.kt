@@ -42,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -416,24 +415,25 @@ fun StepDot(index: Int, title: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * The app icon itself, drawn from the drawable the launcher installs, so the header and the splash
- * cannot drift away from the icon on the home screen. It goes through the platform drawable rather
- * than `painterResource`, which drops the vector's gradient background and would leave the mark
- * flat.
+ * The app icon's own mark — the same bubble, lines and sparkle the launcher icon draws, with its
+ * tile left out — so the header and the splash cannot drift away from the icon. It goes through
+ * the platform drawable rather than `painterResource`, which drops vector gradients and would leave
+ * the mark flat.
  */
 @Composable
 fun AppLogo(size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val icon = remember {
-        ContextCompat.getDrawable(context, R.drawable.ic_launcher)
+    val mark = remember {
+        ContextCompat.getDrawable(context, R.drawable.ic_logo_mark)
     }
-    Canvas(
-        modifier = modifier
-            .size(size)
-            .clip(RoundedCornerShape(percent = 26)),
-    ) {
-        icon ?: return@Canvas
-        icon.setBounds(0, 0, this.size.width.toInt(), this.size.height.toInt())
-        drawIntoCanvas { canvas -> icon.draw(canvas.nativeCanvas) }
+    Canvas(modifier = modifier.size(size)) {
+        mark ?: return@Canvas
+        val scale = minOf(this.size.width / mark.intrinsicWidth, this.size.height / mark.intrinsicHeight)
+        val width = (mark.intrinsicWidth * scale).toInt()
+        val height = (mark.intrinsicHeight * scale).toInt()
+        val left = ((this.size.width - width) / 2).toInt()
+        val top = ((this.size.height - height) / 2).toInt()
+        mark.setBounds(left, top, left + width, top + height)
+        drawIntoCanvas { canvas -> mark.draw(canvas.nativeCanvas) }
     }
 }
