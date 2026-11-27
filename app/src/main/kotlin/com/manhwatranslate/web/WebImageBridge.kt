@@ -2,15 +2,18 @@ package com.manhwatranslate.web
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.os.Build
 import android.webkit.CookieManager
 import com.manhwatranslate.core.image.ArgbImage
-import com.manhwatranslate.core.model.PageProcessingResult
+import com.manhwatranslate.core.pipeline.OverlayBox
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.model.PipelineProgress
 import com.manhwatranslate.core.model.PipelineStage
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.ImageStore
 import com.manhwatranslate.pipeline.TranslationEngine
+import com.manhwatranslate.render.MiGanInpainter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,7 +26,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 import java.io.IOException
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -59,7 +65,8 @@ class WebImageBridge(
     private val imageStore: ImageStore,
     private val engine: TranslationEngine,
     private val settingsProvider: () -> AppSettings,
-    private val onTranslated: (index: Int, token: String) -> Unit,
+    private val inpainter: MiGanInpainter?,
+    private val onOverlay: (index: Int, overlayJson: String) -> Unit,
     private val onFailed: (index: Int, reason: String) -> Unit,
     private val onProgress: (done: Int, total: Int) -> Unit,
     private val onFinished: (PageTranslationReport) -> Unit = {},
@@ -67,7 +74,6 @@ class WebImageBridge(
 
     companion object {
         const val LOCAL_HOST = "manhwa-translate.local"
-        private const val MAX_CACHED_PAGES = 32
         /**
          * A page is decoded to at most this many pixels. The pipeline needs three page-sized
          * buffers plus a bitmap, so twelve megapixels was already past what the heap allows on a
@@ -101,9 +107,6 @@ class WebImageBridge(
         .followRedirects(true)
         .build()
 
-    private val cache = ConcurrentHashMap<String, ByteArray>()
-    private val order = ArrayDeque<String>()
-    private val orderLock = Any()
     private val pending = AtomicInteger(0)
     private val completed = AtomicInteger(0)
     private val pixelBudget = PixelBudget(PIXEL_BUDGET_MP)
@@ -183,37 +186,50 @@ class WebImageBridge(
                     val settings = settingsProvider()
                     val clock = StageClock()
                     val fast = settings.onDeviceFirst()
-                    val result = try {
+                    val boxes = try {
                         withContext(Dispatchers.Default) {
-                            engine.processPage(page, fast) { progress -> clock.onProgress(progress) }
+                            engine.analyzePage(page, fast) { progress -> clock.onProgress(progress) }
                         }
                     } catch (error: Throwable) {
                         if (error is kotlinx.coroutines.CancellationException) throw error
                         if (fast === settings) throw error
                         withContext(Dispatchers.Default) {
-                            engine.processPage(page, settings) { progress -> clock.onProgress(progress) }
+                            engine.analyzePage(page, settings) { progress -> clock.onProgress(progress) }
                         }
                     }
                     clock.finish()
-                    result.warnings.forEach { warnings.add(it) }
-                    describe(image, result)
+                    detectNanos.addAndGet(clock.deviceNanos)
+                    translateNanos.addAndGet(clock.translateNanos)
+                    describe(image, boxes)
                     android.util.Log.d(
                         "WebImageBridge",
                         "ảnh ${image.index}: ${plan.pixels / 1000}K px, " +
+                            "${page.width}x${page.height}, ${boxes.size} vùng, " +
                             "xử lý ${clock.deviceNanos / 1_000_000}ms, " +
                             "dịch ${clock.translateNanos / 1_000_000}ms",
                     )
-                    detectNanos.addAndGet(clock.deviceNanos)
-                    translateNanos.addAndGet(clock.translateNanos)
-                    publish(image.index, result.image)
-                    if (settings.provider != TranslationProviderType.ON_DEVICE &&
-                        result.regions.isNotEmpty()
-                    ) {
+                    publishOverlay(image.index, page.width, page.height, boxes)
+                    val patches = ArrayList<String?>(boxes.size)
+                    val cleaner = inpainter
+                    if (cleaner != null && cleaner.available) {
+                        val started = System.currentTimeMillis()
+                        boxes.forEach { patches += cleaner.patch(page, it.box) }
+                        detectNanos.addAndGet(System.currentTimeMillis() - started)
+                        android.util.Log.d(
+                            "WebImageBridge",
+                            "ảnh ${image.index}: ${patches.count { it != null }}/${boxes.size} " +
+                                "vá nền trong ${System.currentTimeMillis() - started}ms",
+                        )
+                        if (patches.any { it != null }) {
+                            publishOverlay(image.index, page.width, page.height, boxes, patches)
+                        }
+                    }
+                    if (settings.provider != TranslationProviderType.ON_DEVICE && boxes.isNotEmpty()) {
                         refine = {
                             val started = System.currentTimeMillis()
-                            val better = engine.refineTranslation(result, settings)
+                            val better = engine.refineOverlay(boxes, settings)
                             translateNanos.addAndGet(System.currentTimeMillis() - started)
-                            publish(image.index, better.image)
+                            publishOverlay(image.index, page.width, page.height, better, patches)
                         }
                     }
                 } finally {
@@ -248,14 +264,38 @@ class WebImageBridge(
         }
     }
 
-    /** Hands one rendered page to the WebView under a fresh token. */
-    private suspend fun publish(index: Int, image: ArgbImage) {
-        val token = "$index-${System.currentTimeMillis()}.jpg"
-        val jpeg = encodeJpeg(image) ?: throw IOException("Không mã hoá được ảnh")
-        cache[token] = jpeg
-        remember(token)
-        withContext(Dispatchers.Main) { onTranslated(index, token) }
+    /** Hands the page's translated bubbles to the WebView, which draws them over the original. */
+    private suspend fun publishOverlay(
+        index: Int,
+        width: Int,
+        height: Int,
+        boxes: List<OverlayBox>,
+        patches: List<String?> = emptyList(),
+    ) {
+        val payload = JSONObject().apply {
+            put("w", width)
+            put("h", height)
+            put("boxes", JSONArray().apply {
+                boxes.forEachIndexed { position, box ->
+                    put(
+                        JSONObject().apply {
+                            put("l", box.box.left)
+                            put("t", box.box.top)
+                            put("r", box.box.right)
+                            put("b", box.box.bottom)
+                            put("x", box.text)
+                            put("bg", patches.getOrNull(position) ?: hex(box.background))
+                            put("fg", hex(box.foreground))
+                        },
+                    )
+                }
+            })
+        }
+        withContext(Dispatchers.Main) { onOverlay(index, payload.toString()) }
     }
+
+    private fun hex(color: Int): String =
+        String.format(java.util.Locale.US, "#%06X", color and 0xFFFFFF)
 
     /**
      * Reads and draws the page with the on-device model first, so a page becomes readable in a
@@ -266,46 +306,17 @@ class WebImageBridge(
         if (provider == TranslationProviderType.ON_DEVICE) this
         else copy(provider = TranslationProviderType.ON_DEVICE)
 
-    /** Notes what happened to an image, so a page that comes back untranslated says why. */
-    private fun describe(image: PageImage, result: PageProcessingResult) {
-        if (result.regions.isEmpty()) {
-            reports[image.index] = if (result.skipped.isEmpty()) {
-                "không thấy vùng chữ"
-            } else {
-                "chỉ thấy ${result.skipped.size} vùng hiệu ứng âm thanh"
-            }
-            return
-        }
-        val failed = result.translations.count {
-            it.status == com.manhwatranslate.core.model.TranslationStatus.FAILED
-        }
-        val kept = ArrayList<String>(2)
-        if (failed > 0) kept += "$failed/${result.regions.size} vùng dịch lỗi, giữ chữ gốc"
-        if (result.skipped.isNotEmpty()) kept += "bỏ qua ${result.skipped.size} vùng hiệu ứng âm thanh"
-        if (kept.isEmpty()) reports.remove(image.index) else reports[image.index] = kept.joinToString(", ")
+    /** A page with no dialogue stays as the site drew it, which is not a failure to report. */
+    private fun describe(image: PageImage, boxes: List<OverlayBox>) {
+        reports.remove(image.index)
     }
 
-    fun serve(token: String): ByteArray? = cache[token]
-
     fun clear() {
-        cache.clear()
-        synchronized(orderLock) { order.clear() }
         pending.set(0)
         completed.set(0)
         startedAt.set(0)
         detectNanos.set(0)
         translateNanos.set(0)
-    }
-
-    fun cachedCount(): Int = cache.size
-
-    private fun remember(token: String) {
-        synchronized(orderLock) {
-            order.addLast(token)
-            while (order.size > MAX_CACHED_PAGES) {
-                cache.remove(order.removeFirst())
-            }
-        }
     }
 
     private suspend fun download(url: String): Fetched {
@@ -360,15 +371,48 @@ class WebImageBridge(
 
     private suspend fun decode(bytes: ByteArray, plan: Plan): ArgbImage? =
         withContext(Dispatchers.Default) {
-            val bitmap = BitmapFactory.decodeByteArray(
-                bytes,
-                0,
-                bytes.size,
-                BitmapFactory.Options().apply { inSampleSize = plan.sample },
-            ) ?: return@withContext null
+            val bitmap = decodeBitmap(bytes, plan) ?: return@withContext null
             val scaled = scaleToBudget(bitmap, plan.pixels)
             imageStore.fromBitmap(scaled).also { scaled.recycle() }
         }
+
+    /**
+     * Decodes straight to the page's working size when the platform can. `ImageDecoder` scales
+     * during the decode, so a 12-megapixel strip lands at eight megapixels with a resample rather
+     * than the halving that `inSampleSize` gives, which is what made big pages look blurry.
+     */
+    private fun decodeBitmap(bytes: ByteArray, plan: Plan): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val decoded = runCatching {
+                val source = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val width = info.size.width
+                    val height = info.size.height
+                    val target = fitInside(width, height, plan.pixels)
+                    if (target.first != width || target.second != height) {
+                        decoder.setTargetSize(target.first, target.second)
+                    }
+                }
+            }.getOrNull()
+            if (decoded != null) return decoded
+        }
+        return BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = plan.sample },
+        )
+    }
+
+    /** Largest size with the page's aspect ratio that fits the pixel budget. */
+    private fun fitInside(width: Int, height: Int, maxPixels: Int): Pair<Int, Int> {
+        val pixels = width.toLong() * height.toLong()
+        if (pixels <= maxPixels) return width to height
+        val factor = kotlin.math.sqrt(maxPixels.toDouble() / pixels.toDouble())
+        return (width * factor).toInt().coerceAtLeast(1) to
+            (height * factor).toInt().coerceAtLeast(1)
+    }
 
     /** Names what the server actually sent, so an unreadable image is diagnosable. */
     private fun sniff(bytes: ByteArray): String {
@@ -397,7 +441,9 @@ class WebImageBridge(
         ) {
             sample *= 2
         }
-        return Plan(sample, (bounds.outWidth / sample) * (bounds.outHeight / sample))
+        val raw = bounds.outWidth.toLong() * bounds.outHeight.toLong()
+        val pixels = if (raw <= maxPixels) raw.toInt() else maxPixels
+        return Plan(sample, pixels)
     }
 
     /** Splits one image's processing time into on-device work and the translation round trips. */
@@ -437,11 +483,6 @@ class WebImageBridge(
         ).also { bitmap.recycle() }
     }
 
-    /**
-     * JPEG rather than PNG: a lossless encode of a 6-megapixel page costs a second or more on a
-     * phone and holds the bytes for a whole chapter in memory, while text at quality 95 stays
-     * crisp. The reader shows the result in a WebView, so nothing needs the lossless form.
-     */
     /**
      * Admits images by pixel cost so a chapter of tall strips cannot exhaust the heap the way a
      * fixed number of slots did. A request either takes all its units or waits, so nothing holds

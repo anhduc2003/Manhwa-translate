@@ -47,18 +47,17 @@ class WebReaderViewModel(
 
     private var settings: AppSettings = AppSettings()
 
-    /** Set by the screen so the bridge can push a translated page back into the WebView. */
-    var onApplyImage: ((index: Int, url: String) -> Unit)? = null
+    /** Set by the screen so the bridge can push translated bubbles into the page. */
+    var onApplyOverlay: ((index: Int, json: String) -> Unit)? = null
 
     val bridge: WebImageBridge = WebImageBridge(
         scope = viewModelScope,
         imageStore = container.imageStore,
+        inpainter = container.inpainter,
         engine = container.engine,
         settingsProvider = { settings },
-        onTranslated = { index, token ->
-            val url = "https://${WebImageBridge.LOCAL_HOST}/page/$token"
-            _state.update { it.copy(translatedCount = it.translatedCount + 1) }
-            onApplyImage?.invoke(index, url)
+        onOverlay = { index, json ->
+            onApplyOverlay?.invoke(index, json)
         },
         onFailed = { index, reason ->
             _state.update { current ->
