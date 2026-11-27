@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Typeface
 import com.manhwatranslate.core.image.ArgbImage
 import com.manhwatranslate.core.image.Colors
 import com.manhwatranslate.core.layout.TextLayout
@@ -16,7 +15,7 @@ import com.manhwatranslate.core.render.RenderStyle
  * Draws translations onto the erased page. The page is uploaded into a Bitmap once, every
  * block is drawn on a single Canvas, then the pixels are copied back.
  */
-class CanvasPageCompositor : PageCompositor {
+class CanvasPageCompositor(private val measurer: AndroidTextMeasurer) : PageCompositor {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
 
@@ -40,7 +39,7 @@ class CanvasPageCompositor : PageCompositor {
         paint.reset()
         paint.isAntiAlias = true
         paint.isSubpixelText = true
-        paint.typeface = Typeface.create(Typeface.SANS_SERIF, if (layout.bold) Typeface.BOLD else Typeface.NORMAL)
+        paint.typeface = measurer.typefaceFor(layout.font)
         paint.textSize = layout.textSizePx
         paint.textAlign = Paint.Align.LEFT
 

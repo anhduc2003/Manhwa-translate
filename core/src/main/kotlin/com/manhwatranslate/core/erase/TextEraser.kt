@@ -6,7 +6,7 @@ import com.manhwatranslate.core.image.Colors
 enum class EraseMode {
     /** Pick SOLID for flat bubbles, DIFFUSION for textured or gradient backgrounds. */
     AUTO,
-    /** Fill letters with the bubble's estimated background colour, then feather the seam. */
+    /** Paint the fitted background surface over the letters, then match the seam colours. */
     SOLID,
     /** Grow the surrounding colours into the letters (nearest-neighbour diffusion). */
     DIFFUSION,
@@ -14,13 +14,15 @@ enum class EraseMode {
 
 data class EraseOptions(
     val mode: EraseMode = EraseMode.AUTO,
-    val solidContrastThreshold: Float = 14f,
+    val solidContrastThreshold: Float = 6f,
     val diffusionPasses: Int = 2,
+    val matchBackground: Boolean = true,
 )
 
 data class EraseStats(
     val mode: EraseMode,
     val pixelsErased: Int,
+    val usedSurface: Boolean = false,
 )
 
 /**
@@ -34,26 +36,29 @@ class TextEraser(
         val mode = resolveMode(mask)
         val pixels = target.pixels
         val width = mask.width
-        val height = mask.height
         var erased = 0
+        val surface = mask.surface
 
         when (mode) {
             EraseMode.SOLID -> {
-                val background = mask.backgroundArgb
                 for (index in mask.data.indices) {
                     if (mask.data[index].toInt() == 0) continue
-                    pixels[(mask.top + index / width) * target.width + mask.left + index % width] = background
+                    val x = index % width
+                    val y = index / width
+                    val color = surface?.argbAt(x, y) ?: mask.backgroundArgb
+                    pixels[(mask.top + y) * target.width + mask.left + x] = color
                     erased++
                 }
+                if (options.matchBackground && surface != null) applySeamCorrection(target, mask, surface)
             }
             EraseMode.DIFFUSION -> {
                 erased = diffuse(target, mask)
+                smoothInsideMask(target, mask, passes = maxOf(1, options.diffusionPasses))
             }
             EraseMode.AUTO -> Unit
         }
 
-        smoothInsideMask(target, mask, passes = maxOf(1, options.diffusionPasses))
-        return EraseStats(mode, erased)
+        return EraseStats(mode, erased, usedSurface = surface != null && mode == EraseMode.SOLID)
     }
 
     private fun resolveMode(mask: TextMask): EraseMode = when (options.mode) {
@@ -63,6 +68,101 @@ class TextEraser(
             EraseMode.DIFFUSION
         }
         else -> options.mode
+    }
+
+    /**
+     * The fitted surface is smooth, real paper is not. The difference between the two along the
+     * rim of the letters is pushed back into the patch with a falloff, so the fill matches the
+     * grain and colour drift around it instead of sitting on top as a flat stain.
+     */
+    private fun applySeamCorrection(target: ArgbImage, mask: TextMask, surface: BackgroundSurface) {
+        val width = mask.width
+        val height = mask.height
+        val pageWidth = target.width
+        val pixels = target.pixels
+        val size = width * height
+        val deltaR = FloatArray(size)
+        val deltaG = FloatArray(size)
+        val deltaB = FloatArray(size)
+        val scratchR = FloatArray(size)
+        val scratchG = FloatArray(size)
+        val scratchB = FloatArray(size)
+
+        var seeded = false
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val index = y * width + x
+                if (mask.data[index].toInt() != 0) continue
+                if (!nearMask(mask, x, y, width, height)) continue
+                val pixel = pixels[(mask.top + y) * pageWidth + mask.left + x]
+                deltaR[index] = Colors.red(pixel) - surface.redAt(x, y)
+                deltaG[index] = Colors.green(pixel) - surface.greenAt(x, y)
+                deltaB[index] = Colors.blue(pixel) - surface.blueAt(x, y)
+                seeded = true
+            }
+        }
+        if (!seeded) return
+
+        val decay = 0.92f
+        repeat(10) {
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val index = y * width + x
+                    if (mask.data[index].toInt() == 0) continue
+                    var sumR = deltaR[index]
+                    var sumG = deltaG[index]
+                    var sumB = deltaB[index]
+                    var count = 1
+                    if (x > 0) {
+                        sumR += deltaR[index - 1]; sumG += deltaG[index - 1]; sumB += deltaB[index - 1]; count++
+                    }
+                    if (x + 1 < width) {
+                        sumR += deltaR[index + 1]; sumG += deltaG[index + 1]; sumB += deltaB[index + 1]; count++
+                    }
+                    if (y > 0) {
+                        sumR += deltaR[index - width]; sumG += deltaG[index - width]; sumB += deltaB[index - width]; count++
+                    }
+                    if (y + 1 < height) {
+                        sumR += deltaR[index + width]; sumG += deltaG[index + width]; sumB += deltaB[index + width]; count++
+                    }
+                    val divisor = count.toFloat()
+                    scratchR[index] = (sumR / divisor) * decay
+                    scratchG[index] = (sumG / divisor) * decay
+                    scratchB[index] = (sumB / divisor) * decay
+                }
+            }
+            for (index in 0 until size) {
+                if (mask.data[index].toInt() == 0) continue
+                deltaR[index] = scratchR[index]
+                deltaG[index] = scratchG[index]
+                deltaB[index] = scratchB[index]
+            }
+        }
+
+        for (index in 0 until size) {
+            if (mask.data[index].toInt() == 0) continue
+            val x = index % width
+            val y = index / width
+            val pageIndex = (mask.top + y) * pageWidth + mask.left + x
+            val pixel = pixels[pageIndex]
+            val red = (Colors.red(pixel) + deltaR[index]).toInt().coerceIn(0, 255)
+            val green = (Colors.green(pixel) + deltaG[index]).toInt().coerceIn(0, 255)
+            val blue = (Colors.blue(pixel) + deltaB[index]).toInt().coerceIn(0, 255)
+            pixels[pageIndex] = Colors.pack(Colors.alpha(pixel), red, green, blue)
+        }
+    }
+
+    private fun nearMask(mask: TextMask, x: Int, y: Int, width: Int, height: Int): Boolean {
+        for (dy in -2..2) {
+            val ny = y + dy
+            if (ny < 0 || ny >= height) continue
+            for (dx in -2..2) {
+                val nx = x + dx
+                if (nx < 0 || nx >= width) continue
+                if (mask.data[ny * width + nx].toInt() != 0) return true
+            }
+        }
+        return false
     }
 
     /** Multi-source BFS that grows the nearest unmasked colour into every masked pixel. */
@@ -115,10 +215,12 @@ class TextEraser(
         }
 
         if (filled == 0) {
-            val background = mask.backgroundArgb
             for (index in mask.data.indices) {
                 if (mask.data[index].toInt() == 0) continue
-                pixels[(mask.top + index / width) * pageWidth + mask.left + index % width] = background
+                val x = index % width
+                val y = index / width
+                pixels[(mask.top + y) * pageWidth + mask.left + x] =
+                    mask.surface?.argbAt(x, y) ?: mask.backgroundArgb
                 filled++
             }
         }
@@ -153,6 +255,7 @@ class TextEraser(
         val band = BooleanArray(width * height) { index ->
             mask.data[index].toInt() != 0 && interior[index].toInt() == 0
         }
+        if (band.none { it }) return
         val scratch = IntArray(width * height)
         repeat(passes) {
             for (y in 0 until height) {

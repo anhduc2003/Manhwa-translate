@@ -27,6 +27,8 @@ import com.manhwatranslate.ui.HomeScreen
 import com.manhwatranslate.ui.HomeViewModel
 import com.manhwatranslate.ui.SettingsScreen
 import com.manhwatranslate.ui.SettingsViewModel
+import com.manhwatranslate.ui.WebReaderScreen
+import com.manhwatranslate.ui.WebReaderViewModel
 import com.manhwatranslate.ui.theme.ManhwaTranslateTheme
 
 class MainActivity : ComponentActivity() {
@@ -92,6 +94,7 @@ private fun AppRoot(
                 viewModel = homeViewModel,
                 onOpenPage = { pageId -> navController.navigate("editor/$pageId") },
                 onOpenSettings = { navController.navigate("settings") },
+                onOpenWebReader = { navController.navigate("web") },
             )
         }
 
@@ -115,14 +118,33 @@ private fun AppRoot(
             )
         }
 
+        composable("web") {
+            val factory = remember(container) {
+                viewModelFactory { initializer { WebReaderViewModel(application, container) } }
+            }
+            val webViewModel: WebReaderViewModel = viewModel(factory = factory)
+            WebReaderScreen(
+                viewModel = webViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
         composable("settings") {
             val factory = remember(container) {
                 viewModelFactory { initializer { SettingsViewModel(application, container) } }
             }
             val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+            val fontPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+            ) { uri -> uri?.let(settingsViewModel::importFont) }
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onBack = { navController.popBackStack() },
+                onPickFont = {
+                    fontPicker.launch(
+                        arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream"),
+                    )
+                },
             )
         }
     }

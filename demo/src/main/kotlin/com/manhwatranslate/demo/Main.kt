@@ -38,7 +38,7 @@ fun main(args: Array<String>) {
         script = SourceScript.AUTO,
         target = TranslationLanguage.VIETNAMESE,
         eraseMode = EraseMode.AUTO,
-        render = RenderStyle(bold = true),
+        render = RenderStyle(),
         maxTileHeight = 600,
     )
 
@@ -70,18 +70,26 @@ fun main(args: Array<String>) {
         println("  #${region.id} ${region.box}  \"${region.text}\" -> \"${translation?.translatedText}\"")
     }
     println()
-    println("Độ tương phản nền (chọn chế độ xoá):")
+
     println("Thời gian: ${elapsed}ms, pipeline báo ${result.elapsedMillis}ms")
     if (result.warnings.isNotEmpty()) {
         println("Cảnh báo:")
         result.warnings.forEach { println("  - $it") }
     }
 
-    val beforeDark = darkPixels(source, bubble)
-    val afterDark = darkPixels(result.cleanedImage, bubble)
     println()
-    println("Pixel tối trong bong bóng trước khi xoá: $beforeDark")
-    println("Pixel tối trong bong bóng sau khi xoá:  $afterDark")
+    println("Mực còn sót trong từng khung chữ:")
+    var beforeTotal = 0
+    var afterTotal = 0
+    for (region in result.regions) {
+        val before = inkPixels(source, region.box)
+        val after = inkPixels(result.cleanedImage, region.box)
+        beforeTotal += before
+        afterTotal += after
+        val percent = if (before == 0) 0f else after * 100f / before
+        println("  #${region.id} ${region.box} mực ${before} -> ${after} (${"%.1f".format(percent)}%)")
+    }
+    println("Tổng mực trong khung chữ: $beforeTotal -> $afterTotal")
     println("Ảnh đã ghi vào ${outputDir.absolutePath}")
 }
 
@@ -90,13 +98,16 @@ private fun writePng(image: ArgbImage, rect: RectI, name: String, dir: File) {
     ImageIO.write(crop.toBufferedImage(), "png", File(dir, name))
 }
 
-private fun darkPixels(image: ArgbImage, rect: RectI): Int {
+private fun inkPixels(image: ArgbImage, rect: RectI): Int {
     val clamped = rect.clamped(image.width, image.height) ?: return 0
-    var count = 0
+    val values = ArrayList<Float>()
     for (y in clamped.top until clamped.bottom) {
         for (x in clamped.left until clamped.right) {
-            if (Colors.luminance(image.get(x, y)) < 110f) count++
+            values.add(Colors.luminance(image.get(x, y)))
         }
     }
-    return count
+    if (values.isEmpty()) return 0
+    values.sort()
+    val background = values[values.size / 2]
+    return values.count { kotlin.math.abs(it - background) > 60f }
 }

@@ -138,7 +138,11 @@ fun EditorScreen(
                         )
                         if (page != null) {
                             Text(
-                                text = "${page.regions.size} vùng chữ · ${page.providerName}",
+                                text = buildString {
+                                    append("${page.regions.size} vùng chữ")
+                                    if (page.skippedCount > 0) append(" · ${page.skippedCount} SFX bỏ qua")
+                                    append(" · ${page.providerName}")
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,

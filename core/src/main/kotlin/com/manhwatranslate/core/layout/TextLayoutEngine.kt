@@ -9,8 +9,8 @@ data class LayoutStyle(
     val minPaddingPx: Float = 2f,
     val lineSpacing: Float = 1.08f,
     val maxLines: Int = 8,
-    val bold: Boolean = true,
     val minTextSizeRatio: Float = 0.55f,
+    val font: FontSpec = FontSpec.Default,
 )
 
 /**
@@ -24,7 +24,7 @@ data class TextLayout(
     val blockHeightPx: Float,
     val box: RectI,
     val padding: Float,
-    val bold: Boolean,
+    val font: FontSpec,
     val fits: Boolean,
 ) {
     val availableWidth: Float get() = (box.width - 2 * padding).coerceAtLeast(1f)
@@ -33,11 +33,6 @@ data class TextLayout(
         val blockTop = box.top + (box.height - blockHeightPx) / 2f
         val firstBaseline = blockTop + textSizePx * 0.82f
         return firstBaseline + lineIndex * lineHeightPx
-    }
-
-    fun lineLeft(line: String, measurer: TextMeasurer): Float {
-        val width = measurer.measureWidth(line, textSizePx, bold)
-        return box.left + (box.width - width) / 2f
     }
 }
 
@@ -55,31 +50,32 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
         val padding = maxOf(style.minPaddingPx, minOf(box.width, box.height) * style.paddingFactor)
         val availableWidth = (box.width - 2 * padding).coerceAtLeast(4f)
         val availableHeight = (box.height - 2 * padding).coerceAtLeast(4f)
+        val font = style.font
 
         if (normalized.isEmpty()) {
             return TextLayout(
                 lines = emptyList(),
                 textSizePx = style.minTextSizePx,
-                lineHeightPx = measurer.lineHeight(style.minTextSizePx, style.bold),
+                lineHeightPx = measurer.lineHeight(style.minTextSizePx, font),
                 blockHeightPx = 0f,
                 box = box,
                 padding = padding,
-                bold = style.bold,
+                font = font,
                 fits = true,
             )
         }
 
         val hardFloor = maxOf(4f, style.minTextSizePx * style.minTextSizeRatio)
         var size = style.maxTextSizePx
-        var lines = wrap(normalized, size, availableWidth)
+        var lines = wrap(normalized, size, availableWidth, font)
         while (size > hardFloor) {
-            val lineHeight = measurer.lineHeight(size, style.bold)
+            val lineHeight = measurer.lineHeight(size, font)
             val height = lineHeight * style.lineSpacing * lines.size
             if (lines.size <= style.maxLines && height <= availableHeight) break
             size -= 1f
-            lines = wrap(normalized, size, availableWidth)
+            lines = wrap(normalized, size, availableWidth, font)
         }
-        val lineHeight = measurer.lineHeight(size, style.bold)
+        val lineHeight = measurer.lineHeight(size, font)
         val blockHeight = lineHeight * style.lineSpacing * lines.size
         val fits = lines.size <= style.maxLines && blockHeight <= availableHeight * 1.02f
         return TextLayout(
@@ -89,22 +85,22 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
             blockHeightPx = blockHeight,
             box = box,
             padding = padding,
-            bold = style.bold,
+            font = font,
             fits = fits,
         )
     }
 
-    fun wrap(text: String, sizePx: Float, maxWidth: Float): List<String> {
+    fun wrap(text: String, sizePx: Float, maxWidth: Float, font: FontSpec = FontSpec.Default): List<String> {
         if (text.isEmpty()) return emptyList()
         val hardLines = text.split('\n')
         val result = ArrayList<String>()
         for (hardLine in hardLines) {
-            result += wrapParagraph(hardLine, sizePx, maxWidth)
+            result += wrapParagraph(hardLine, sizePx, maxWidth, font)
         }
         return result
     }
 
-    private fun wrapParagraph(paragraph: String, sizePx: Float, maxWidth: Float): List<String> {
+    private fun wrapParagraph(paragraph: String, sizePx: Float, maxWidth: Float, font: FontSpec): List<String> {
         val trimmed = paragraph.trim()
         if (trimmed.isEmpty()) return emptyList()
         val tokens = tokenize(trimmed)
@@ -121,22 +117,22 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
         for (token in tokens) {
             val needsSpace = !token.cjk && current.isNotEmpty() && !current.lastIsCjkChar()
             val candidate = if (needsSpace) "$current ${token.text}" else "$current${token.text}"
-            if (measurer.measureWidth(candidate, sizePx, bold = true) <= maxWidth) {
+            if (measurer.measureWidth(candidate, sizePx, font) <= maxWidth) {
                 current = StringBuilder(candidate)
                 continue
             }
             if (current.isEmpty()) {
-                if (measurer.measureWidth(token.text, sizePx, bold = true) <= maxWidth) {
+                if (measurer.measureWidth(token.text, sizePx, font) <= maxWidth) {
                     current = StringBuilder(token.text)
                 } else {
-                    lines += splitLongToken(token.text, sizePx, maxWidth)
+                    lines += splitLongToken(token.text, sizePx, maxWidth, font)
                 }
             } else {
                 flush()
-                if (measurer.measureWidth(token.text, sizePx, bold = true) <= maxWidth) {
+                if (measurer.measureWidth(token.text, sizePx, font) <= maxWidth) {
                     current = StringBuilder(token.text)
                 } else {
-                    lines += splitLongToken(token.text, sizePx, maxWidth)
+                    lines += splitLongToken(token.text, sizePx, maxWidth, font)
                 }
             }
         }
@@ -145,12 +141,12 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
         return lines
     }
 
-    private fun splitLongToken(token: String, sizePx: Float, maxWidth: Float): List<String> {
+    private fun splitLongToken(token: String, sizePx: Float, maxWidth: Float, font: FontSpec): List<String> {
         val pieces = ArrayList<String>()
         var remaining = token
         var guard = 0
         while (remaining.isNotEmpty() && guard++ < 200) {
-            val fit = measurer.breakIndex(remaining, sizePx, bold = true, maxWidth = maxWidth)
+            val fit = measurer.breakIndex(remaining, sizePx, font, maxWidth)
             val take = fit.coerceIn(1, remaining.length)
             pieces += remaining.substring(0, take)
             remaining = remaining.substring(take)
@@ -193,9 +189,8 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
             (code in 0x20000..0x2FA1F)
     }
 
-    private fun StringBuilder.last(): Char = if (isEmpty()) ' ' else this[length - 1]
-
-    private fun StringBuilder.lastOrNullChar(): Char? = if (isEmpty()) null else this[length - 1]
-
-    private fun StringBuilder.lastIsCjkChar(): Boolean = lastOrNullChar()?.isCjkChar() ?: false
+    private fun StringBuilder.lastIsCjkChar(): Boolean {
+        if (isEmpty()) return false
+        return this[length - 1].isCjkChar()
+    }
 }

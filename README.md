@@ -12,9 +12,14 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 
 - **Nhận diện chữ** bằng ML Kit (Latinh, Hàn, Trung, Nhật). Chế độ *Tự động* chạy cả bốn mô
   hình rồi chọn kết quả hợp lý nhất cho từng bong bóng.
-- **Xoá chữ gốc** bằng thuật toán inpaint riêng: dựng mask theo màu nền bong bóng và tương phản
-  cục bộ, đóng hình thái để lấp nét đứt, rồi tô nền (bong bóng phẳng) hoặc lan màu (nền có
-  gradient, hiệu ứng) tuỳ vùng.
+- **Xoá chữ gốc** bằng thuật toán inpaint riêng: ước lượng màu giấy từ viền khung chữ và màu mực
+  từ các pixel xa giấy nhất, dựng mask theo màu nền + tương phản cục bộ, đóng hình thái để lấp nét
+  đứt. Nền được mô hình bằng một mặt bậc hai (khớp gradient và vệt sáng tối), tô phẳng khi bong
+  bóng trơn, lan màu từ pixel kề khi nền có vân, rồi hiệu chỉnh đường may để hoà vào vân giấy.
+  Chế độ *Tự động* đo độ rối của giấy để chọn giữa hai cách.
+- **Lọc chữ hiệu ứng**: vùng một từ, chữ quá lớn, hoặc nằm trên hình vẽ bị bỏ qua thay vì xoá lem.
+- **Bám kiểu chữ gốc**: ước lượng in đậm, in nghiêng, chữ hoa, bề rộng chữ (condensed) và cỡ chữ
+  từ chiều cao dòng gốc; hỗ trợ nhập font TTF riêng trong Cài đặt.
 - **Dịch** qua 5 nhà cung cấp: ML Kit trên máy (miễn phí, offline), Google Cloud Translation,
   DeepL, Gemini, và mọi endpoint kiểu OpenAI (OpenAI, DeepSeek, Groq, OpenRouter, server nội bộ).
   Nhà cung cấp kiểu LLM dịch cả trang trong một lượt để giữ ngữ cảnh, có đánh số `[[n]]` để ghép
@@ -26,6 +31,8 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 - **Sửa bản dịch**: chạm vào khung chữ để sửa tay hoặc dịch lại riêng vùng đó; mọi thay đổi được
   vẽ lại và lưu.
 - **Chia sẻ / lưu ảnh**: nhận ảnh từ ứng dụng khác qua menu Chia sẻ, xuất PNG vào thư viện ảnh.
+- **Trình đọc web**: dán link truyện, ẩn quảng cáo, chặn cửa sổ cookie, gỡ link ẩn hình trong suốt,
+  và dịch ảnh ngay trên trang khi chạm vào ảnh.
 
 ## Kiến trúc
 
@@ -33,13 +40,15 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 core/   Kotlin/JVM thuần, không phụ thuộc Android — toàn bộ thuật toán
   geometry/   RectI
   image/      ArgbImage, Colors
-  scan/       ImageTiler (cắt dải), RegionMerger (khử trùng lặp, nối đoạn bị cắt)
-  erase/      TextMaskBuilder (mask theo nền + tương phản), Morphology, TextEraser (solid/diffusion)
-  layout/     TextLayoutEngine (tự co cỡ chữ, ngắt dòng theo từ và CJK)
+  scan/       ImageTiler (cắt dải), RegionMerger (khử trùng lặp, nối đoạn bị cắt), SfxFilter
+  erase/      TextMaskBuilder (giấy + mực + mask), BackgroundSurface (mặt bậc hai), InkAnalyzer,
+              Morphology, TextEraser (solid/diffusion/auto)
+  layout/     TextLayoutEngine (tự co cỡ chữ, ngắt dòng theo từ và CJK), FontEstimator, FontSpec
   render/     RenderStyle, PageCompositor (interface vẽ theo nền tảng)
   translate/  TranslationProvider, TranslationService (chia lô, khử trùng, retry)
   pipeline/   TranslationPipeline (detect → erase → translate → render)
-app/    Android: ML Kit OCR, các provider dịch, Canvas renderer, Compose UI, DataStore
+app/    Android: ML Kit OCR, các provider dịch, Canvas renderer, Compose UI, DataStore,
+        phông chữ nhập tay, trình đọc web (WebView + WebImageBridge), chặn quảng cáo (AdBlocker)
 demo/   Harness Java2D chạy đúng pipeline trên một trang manhwa tổng hợp, xuất ảnh PNG để kiểm tra
 ```
 
@@ -62,6 +71,15 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 `assembleDebug` tạo APK riêng cho từng kiến trúc CPU (`app-arm64-v8a-debug.apk` ~50 MB dùng cho
 hầu hết điện thoại) và một APK universal (~128 MB). CI trên GitHub cũng build và đính kèm APK.
 
+Chạy thử đúng pipeline trên một trang manhwa thật (cần file ảnh và file JSON hộp chữ OCR, xem
+`testdata/ocr.py`; thư mục này không được commit vì là ảnh truyện có bản quyền):
+
+```bash
+./gradlew :demo:realPage -Pargs="testdata/page_scan.jpg testdata/page_scan.json out/real"
+```
+
+Kết quả ghi ra `out/real/*-source.png`, `*-erased.png`, `*-translated.png` kèm số đo.
+
 ## Cài đặt
 
 1. Mở APK, cấp quyền lưu ảnh nếu máy chạy Android 9 trở xuống.
@@ -72,18 +90,29 @@ hầu hết điện thoại) và một APK universal (~128 MB). CI trên GitHub 
    nhanh hơn nhiều so với chế độ Tự động.
 4. Về trang chủ, chọn ảnh hoặc chụp ảnh. Ứng dụng xử lý rồi mở trình xem.
 
-## Đo chất lượng xoá chữ
+## Đo chất lượng trên trang thật
 
-`demo` xuất ảnh trước/sau khi xoá. Trên trang mẫu (bong bóng trắng, bong bóng đen, khung caption
-đen, chữ hiệu ứng trên nền gradient):
+Bộ test chạy trên ba trang manhwa thật (1080×14419, 720×13718, 720×5498) qua đúng pipeline của
+app, đo độ lệch chuẩn trong từng khung chữ trước và sau khi xoá:
 
-| Vùng | Mực chữ trước | Mực chữ sau khi xoá | Ghi chú |
-| --- | --- | --- | --- |
-| Bong bóng thoại 1 | 11.8% | 0.1% | nền trắng, lệch chuẩn 3.8 |
-| Bong bóng thoại 2 | 13.7% | 0.0% | nền trắng, lệch chuẩn 0.0 |
-| Khung caption nền đen (chữ sáng) | 7.4% | 0.0% | giữ đúng nền đen |
-| Bong bóng nền đen (chữ sáng) | 11.2% | 0.0% | giữ đúng nền đen |
-| Chữ hiệu ứng trên nền gradient | 14.0% | 0.0% | gradient + vạch nhiễu còn nguyên |
+| Trang | Vùng chữ | Xử lý | Bỏ qua (hiệu ứng) | Lệch chuẩn trước → sau | Vùng phẳng hẳn | Pixel đổi ngoài khung | Thời gian |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| page_scan (chụp, nền có vân) | 68 | 53 | 8 | 78.0 → 4.7 | 52/53 | 0 | 1.4 s |
+| page_bw (đen trắng dài) | 23 | 20 | 1 | 87.8 → 4.4 | 20/20 | 0 | 0.8 s |
+| page_color (màu) | 10 | 8 | 0 | 92.0 → 3.9 | 8/8 | 0 | 0.6 s |
+
+"Pixel đổi ngoài khung" = số pixel bị sửa nằm ngoài mọi hộp chữ đã nhận — bằng 0 nghĩa là thuật
+toán không đụng tới phần hình vẽ còn lại của trang.
+
+Trên trang mẫu tổng hợp (caption, bốn bong bóng thoại kể cả bong bóng nền đen, và một khung chữ
+dài) `:demo:run` đếm số pixel "mực" trong từng khung chữ — pixel lệch quá 60 đơn vị độ sáng so với
+màu nền của chính khung đó, nên bong bóng nền đen cũng được đo đúng:
+
+```
+#0 mực 1187 -> 0    #1 mực 5310 -> 0    #2 mực 4018 -> 0    #4 mực 6502 -> 0
+#5 mực 3241 -> 0    #6 mực 768  -> 0    #7 mực 8317 -> 0
+Tổng: 29343 -> 0
+```
 
 ## Giới hạn đã biết
 
@@ -92,3 +121,5 @@ hầu hết điện thoại) và một APK universal (~128 MB). CI trên GitHub 
 - ML Kit không dịch tốt văn phong truyện; nên dùng provider LLM nếu cần chất lượng.
 - Bản dịch dài hơn nhiều so với gốc sẽ thu nhỏ cỡ chữ; tăng "Mở rộng khung chữ" trong Cài đặt.
 - Chưa hỗ trợ chữ dọc (manga Nhật) — hiện vẽ ngang.
+- Chưa chạy thử trên máy thật: toàn bộ số đo ở trên đến từ unit test và harness JVM. Chất lượng
+  OCR của ML Kit, hành vi WebView và việc chặn quảng cáo cần kiểm chứng trên điện thoại.

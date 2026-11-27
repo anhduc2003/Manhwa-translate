@@ -39,7 +39,7 @@ class TextLayoutEngineTest {
         val layout = engine.layout(text, box, LayoutStyle(maxTextSizePx = 70f))
         val limit = layout.availableWidth
         for (line in layout.lines) {
-            val width = measurer.measureWidth(line, layout.textSizePx, layout.bold)
+            val width = measurer.measureWidth(line, layout.textSizePx, layout.font)
             assertTrue(width <= limit + 0.5f, "line '$line' is ${width}px > $limit")
         }
     }
@@ -76,7 +76,7 @@ class TextLayoutEngineTest {
         assertTrue(layout.lines.size >= 2)
         val limit = layout.availableWidth
         layout.lines.forEach { line ->
-            assertTrue(measurer.measureWidth(line, layout.textSizePx, true) <= limit + 0.5f)
+            assertTrue(measurer.measureWidth(line, layout.textSizePx, layout.font) <= limit + 0.5f)
         }
     }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.data.AppSettings
+import com.manhwatranslate.data.FontStore
 import com.manhwatranslate.data.ImageStore
 import com.manhwatranslate.data.ProjectStore
 import com.manhwatranslate.data.SecretsStore
@@ -26,8 +27,9 @@ class AppContainer(context: Context) {
     val secretsStore = SecretsStore(appContext)
     val imageStore = ImageStore(appContext)
     val projectStore = ProjectStore(appContext, imageStore)
-    val measurer = AndroidTextMeasurer()
-    val compositor = CanvasPageCompositor()
+    val fontStore = FontStore(appContext)
+    val measurer = AndroidTextMeasurer().apply { setCustomTypeface(fontStore.loadTypeface()) }
+    val compositor = CanvasPageCompositor(measurer)
     val recognizer = MlKitTextRecognizer()
     val onDeviceTranslator = MlKitTranslationProvider()
 

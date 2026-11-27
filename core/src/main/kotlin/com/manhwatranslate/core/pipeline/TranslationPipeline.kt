@@ -1,9 +1,15 @@
 package com.manhwatranslate.core.pipeline
 
 import com.manhwatranslate.core.erase.EraseMode
+import com.manhwatranslate.core.erase.EraseOptions
 import com.manhwatranslate.core.erase.TextEraser
+import com.manhwatranslate.core.erase.TextMask
 import com.manhwatranslate.core.erase.TextMaskBuilder
 import com.manhwatranslate.core.image.ArgbImage
+import com.manhwatranslate.core.layout.FontEstimator
+import com.manhwatranslate.core.layout.FontFamilyKind
+import com.manhwatranslate.core.layout.FontMode
+import com.manhwatranslate.core.layout.FontSpec
 import com.manhwatranslate.core.layout.LayoutStyle
 import com.manhwatranslate.core.layout.TextLayoutEngine
 import com.manhwatranslate.core.layout.TextMeasurer
@@ -20,6 +26,8 @@ import com.manhwatranslate.core.render.RenderStyle
 import com.manhwatranslate.core.scan.ImageTiler
 import com.manhwatranslate.core.scan.ImageTile
 import com.manhwatranslate.core.scan.RegionMerger
+import com.manhwatranslate.core.scan.SfxFilter
+import com.manhwatranslate.core.scan.SfxSensitivity
 import com.manhwatranslate.core.translate.TranslationService
 import kotlinx.coroutines.CancellationException
 
@@ -39,11 +47,13 @@ data class PipelineOptions(
     val keepOriginalWhenFailed: Boolean = true,
     /** Lets translated text use a slightly larger box than the original letters occupied. */
     val boxExpansion: Float = 1.0f,
+    val sfxSensitivity: SfxSensitivity = SfxSensitivity.MEDIUM,
+    val matchBackgroundColor: Boolean = true,
 )
 
 /**
- * The whole manhwa page flow: scan for text, erase it, translate it, draw the translation
- * back into the same bubbles.
+ * The whole manhwa page flow: scan for text, drop sound effects, erase the lettering, translate
+ * it, draw the translation back into the same bubbles with a font matched to the original.
  */
 class TranslationPipeline(
     private val recognizer: TileRecognizer,
@@ -51,10 +61,15 @@ class TranslationPipeline(
     private val measurer: TextMeasurer,
     private val compositor: PageCompositor,
     private val maskBuilder: TextMaskBuilder = TextMaskBuilder(),
-    private val eraser: TextEraser = TextEraser(),
     private val mergerOptions: RegionMerger.Options = RegionMerger.Options(),
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
+
+    private data class PreparedPage(
+        val regions: List<TextRegion>,
+        val skipped: List<TextRegion>,
+        val cleaned: ArgbImage,
+    )
 
     suspend fun process(
         page: ArgbImage,
@@ -65,27 +80,37 @@ class TranslationPipeline(
         val warnings = ArrayList<String>()
         onProgress(PipelineProgress.of(PipelineStage.PREPARING, 0.02f, "Chuẩn bị trang"))
 
-        val regions = detect(page, options, warnings, onProgress)
-
+        val detected = detect(page, options, warnings, onProgress)
         onProgress(PipelineProgress.of(PipelineStage.ERASING, 0.5f, "Xoá chữ gốc"))
-        val cleaned = erase(page, regions, options)
+        val prepared = prepare(page, detected, options, warnings)
 
-        if (regions.isEmpty()) {
-            warnings += "Không tìm thấy vùng chữ nào trên trang này"
+        if (prepared.regions.isEmpty()) {
+            warnings += if (prepared.skipped.isEmpty()) {
+                "Không tìm thấy vùng chữ nào trên trang này"
+            } else {
+                "Chỉ tìm thấy hiệu ứng âm thanh, không có lời thoại để dịch"
+            }
             onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
             return PageProcessingResult(
-                image = page.copy(),
-                cleanedImage = cleaned,
-                regions = regions,
+                image = prepared.cleaned,
+                cleanedImage = prepared.cleaned,
+                regions = emptyList(),
                 translations = emptyList(),
+                skipped = prepared.skipped,
                 warnings = warnings,
                 elapsedMillis = System.currentTimeMillis() - started,
             )
         }
 
-        onProgress(PipelineProgress.of(PipelineStage.TRANSLATING, 0.62f, "Đang dịch ${regions.size} vùng chữ"))
+        onProgress(
+            PipelineProgress.of(
+                PipelineStage.TRANSLATING,
+                0.62f,
+                "Đang dịch ${prepared.regions.size} vùng chữ",
+            ),
+        )
         val batch = translationService.translate(
-            regions = regions,
+            regions = prepared.regions,
             script = options.script,
             target = options.target,
             minLetterCount = options.minLetterCount,
@@ -94,7 +119,7 @@ class TranslationPipeline(
                     PipelineProgress.of(
                         PipelineStage.TRANSLATING,
                         0.62f + 0.18f * fraction,
-                        "Đang dịch ${regions.size} vùng chữ",
+                        "Đang dịch ${prepared.regions.size} vùng chữ",
                     ),
                 )
             },
@@ -102,14 +127,17 @@ class TranslationPipeline(
         warnings += batch.warnings
 
         onProgress(PipelineProgress.of(PipelineStage.RENDERING, 0.84f, "Vẽ bản dịch"))
-        val rendered = finalImageFrom(cleaned, regions, batch.translations, options, onProgress)
+        val rendered = compose(prepared.cleaned, prepared.regions, batch.translations, options) { count ->
+            onProgress(PipelineProgress.of(PipelineStage.RENDERING, 0.92f, "Vẽ $count khối chữ"))
+        }
         onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
 
         return PageProcessingResult(
             image = rendered,
-            cleanedImage = cleaned,
-            regions = regions,
+            cleanedImage = prepared.cleaned,
+            regions = prepared.regions,
             translations = batch.translations,
+            skipped = prepared.skipped,
             warnings = warnings,
             elapsedMillis = System.currentTimeMillis() - started,
         )
@@ -121,24 +149,54 @@ class TranslationPipeline(
         regions: List<TextRegion>,
         translations: List<RegionTranslation>,
         options: PipelineOptions,
-    ): ArgbImage = finalImageFrom(cleaned, regions, translations, options) {}
+    ): ArgbImage = compose(cleaned, regions, translations, options) {}
 
-    fun layoutFor(region: TextRegion, text: String, options: PipelineOptions): com.manhwatranslate.core.layout.TextLayout {
+    fun layoutFor(
+        region: TextRegion,
+        text: String,
+        options: PipelineOptions,
+    ): com.manhwatranslate.core.layout.TextLayout {
         val style = options.render
         val targetBox = expandedBox(region.box, options.boxExpansion)
-        val maxSize = minOf(style.maxTextSizePx, maxOf(style.minTextSizePx, targetBox.height.toFloat())) *
+        val font = fontFor(region, style)
+        val originalSize = if (options.render.autoSizeFromOriginal) {
+            (region.box.height.toFloat() / region.lines.size.coerceAtLeast(1)) * 1.25f
+        } else {
+            Float.MAX_VALUE
+        }
+        val maxSize = minOf(style.maxTextSizePx, maxOf(style.minTextSizePx, minOf(targetBox.height.toFloat(), originalSize))) *
             style.textSizeScale.coerceAtLeast(0.2f)
         val layoutStyle = LayoutStyle(
             minTextSizePx = style.minTextSizePx * style.textSizeScale.coerceAtLeast(0.2f),
             maxTextSizePx = maxSize,
             lineSpacing = style.lineSpacing,
             maxLines = style.maxLines,
-            bold = style.bold,
+            font = font,
         )
         return layoutEngine.layout(text, targetBox, layoutStyle)
     }
 
-    private fun expandedBox(box: com.manhwatranslate.core.geometry.RectI, factor: Float): com.manhwatranslate.core.geometry.RectI {
+    private fun fontFor(region: TextRegion, style: RenderStyle): FontSpec {
+        val estimated = region.font
+        val family = when (style.fontMode) {
+            FontMode.AUTO -> estimated.family
+            FontMode.SANS -> FontFamilyKind.SANS
+            FontMode.SERIF -> FontFamilyKind.SERIF
+            FontMode.CONDENSED -> FontFamilyKind.CONDENSED
+            FontMode.MONOSPACE -> FontFamilyKind.MONOSPACE
+            FontMode.CUSTOM -> FontFamilyKind.CUSTOM
+        }
+        return FontSpec(
+            family = family,
+            weight = style.fontWeightOverride ?: estimated.weight,
+            italic = estimated.italic,
+        )
+    }
+
+    private fun expandedBox(
+        box: com.manhwatranslate.core.geometry.RectI,
+        factor: Float,
+    ): com.manhwatranslate.core.geometry.RectI {
         if (factor <= 1.001f) return box
         val newWidth = (box.width * factor).toInt().coerceAtLeast(box.width)
         val newHeight = (box.height * factor).toInt().coerceAtLeast(box.height)
@@ -181,25 +239,69 @@ class TranslationPipeline(
         return refined
     }
 
-    private fun erase(
+    private fun prepare(
         page: ArgbImage,
-        regions: List<TextRegion>,
+        detected: List<TextRegion>,
         options: PipelineOptions,
-    ): ArgbImage {
-        val working = page.copy()
-        for (region in regions) {
-            val mask = maskBuilder.build(page, region) ?: continue
-            eraser.erase(working, mask)
+        warnings: MutableList<String>,
+    ): PreparedPage {
+        val skipped = ArrayList<TextRegion>()
+        val kept = ArrayList<TextRegion>()
+        for (region in detected) {
+            val analysis = SfxFilter.analyze(page, region, page.width, options.sfxSensitivity)
+            if (analysis.isSoundEffect) skipped += region else kept += region
         }
-        return working
+        if (skipped.isNotEmpty()) {
+            warnings += "Bỏ qua ${skipped.size} vùng hiệu ứng âm thanh"
+        }
+
+        val working = page.copy()
+        val eraser = TextEraser(
+            EraseOptions(mode = options.eraseMode, matchBackground = options.matchBackgroundColor),
+        )
+        val measured = ArrayList<TextRegion>(kept.size)
+        for (region in kept) {
+            val mask = maskBuilder.build(page, region)
+            val font = if (mask != null) {
+                estimateFont(region, mask, options)
+            } else {
+                region.font
+            }
+            val updated = region.copy(font = font)
+            measured += updated
+            if (mask != null) eraser.erase(working, mask)
+        }
+        return PreparedPage(measured, skipped, working)
     }
 
-    private fun finalImageFrom(
+    private fun estimateFont(region: TextRegion, mask: TextMask, options: PipelineOptions): FontSpec {
+        if (mask.metrics.inkCount == 0) return region.font
+        val preferred = when (options.render.fontMode) {
+            FontMode.AUTO -> null
+            FontMode.SANS -> FontFamilyKind.SANS
+            FontMode.SERIF -> FontFamilyKind.SERIF
+            FontMode.CONDENSED -> FontFamilyKind.CONDENSED
+            FontMode.MONOSPACE -> FontFamilyKind.MONOSPACE
+            FontMode.CUSTOM -> FontFamilyKind.CUSTOM
+        }
+        val result = FontEstimator.estimate(
+            region = region,
+            metrics = mask.metrics,
+            preferredFamily = preferred,
+            maxSizePx = options.render.maxTextSizePx,
+            minSizePx = options.render.minTextSizePx,
+        )
+        return result.font.copy(
+            weight = options.render.fontWeightOverride ?: result.font.weight,
+        )
+    }
+
+    private fun compose(
         cleaned: ArgbImage,
         regions: List<TextRegion>,
         translations: List<RegionTranslation>,
         options: PipelineOptions,
-        onProgress: (PipelineProgress) -> Unit,
+        onPlanned: (Int) -> Unit,
     ): ArgbImage {
         val byId = translations.associateBy { it.regionId }
         val items = ArrayList<RenderItem>(regions.size)
@@ -214,16 +316,9 @@ class TranslationPipeline(
                 else -> translation.translatedText
             }
             if (text.isBlank()) continue
-            val layout = layoutFor(region, text, options)
-            items += RenderItem(layout, options.render)
+            items += RenderItem(layoutFor(region, text, options), options.render)
         }
-        onProgress(
-            PipelineProgress.of(
-                PipelineStage.RENDERING,
-                0.92f,
-                "Vẽ ${items.size} khối chữ",
-            ),
-        )
+        onPlanned(items.size)
         return compositor.compose(cleaned.copy(), items)
     }
 }

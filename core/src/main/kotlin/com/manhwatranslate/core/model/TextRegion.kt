@@ -1,6 +1,7 @@
 package com.manhwatranslate.core.model
 
 import com.manhwatranslate.core.geometry.RectI
+import com.manhwatranslate.core.layout.FontSpec
 import kotlinx.serialization.Serializable
 
 /** A single recognized text line inside a region. */
@@ -19,6 +20,7 @@ data class TextRegion(
     val text: String = lines.joinToString(" ") { it.text }.trim(),
     val script: SourceScript = SourceScript.AUTO,
     val confidence: Float? = null,
+    val font: FontSpec = FontSpec.Default,
 ) {
     val lineBoxes: List<RectI> get() = lines.map { it.box }
     val isBlank: Boolean get() = text.isBlank()
@@ -47,6 +49,7 @@ data class PageProcessingResult(
     val cleanedImage: com.manhwatranslate.core.image.ArgbImage,
     val regions: List<TextRegion>,
     val translations: List<RegionTranslation>,
+    val skipped: List<TextRegion> = emptyList(),
     val warnings: List<String> = emptyList(),
     val elapsedMillis: Long = 0L,
 )

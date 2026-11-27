@@ -29,6 +29,7 @@ data class SavedPage(
     val providerName: String,
     val durationMs: Long,
     val warnings: List<String> = emptyList(),
+    val skippedCount: Int = 0,
     val edited: Boolean = false,
 ) {
     val fileNameSource: String get() = "source.jpg"
@@ -69,6 +70,7 @@ class ProjectStore(private val context: Context, private val imageStore: ImageSt
         pageCount: Int,
         durationMs: Long,
         warnings: List<String>,
+        skippedCount: Int = 0,
     ): SavedPage = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val dir = directoryOf(id)
@@ -89,6 +91,7 @@ class ProjectStore(private val context: Context, private val imageStore: ImageSt
             providerName = settings.provider.label,
             durationMs = durationMs,
             warnings = warnings,
+            skippedCount = skippedCount,
         )
 
         imageStore.encodeJpeg(source, File(dir, page.fileNameSource), quality = 92)

@@ -1,6 +1,9 @@
 package com.manhwatranslate.data
 
 import com.manhwatranslate.core.erase.EraseMode
+import com.manhwatranslate.core.layout.FontMode
+import com.manhwatranslate.core.layout.FontWeightLevel
+import com.manhwatranslate.core.scan.SfxSensitivity
 import com.manhwatranslate.core.model.SourceScript
 import com.manhwatranslate.core.model.TranslationLanguage
 import com.manhwatranslate.core.model.TranslationProviderType
@@ -18,7 +21,12 @@ data class AppSettings(
     val geminiModel: String = "gemini-2.0-flash",
     val deeplPro: Boolean = false,
     val eraseMode: EraseMode = EraseMode.AUTO,
-    val bold: Boolean = true,
+    val fontMode: FontMode = FontMode.AUTO,
+    val fontWeight: FontWeightLevel? = null,
+    val autoSizeFromOriginal: Boolean = true,
+    val customFontName: String = "",
+    val sfxSensitivity: SfxSensitivity = SfxSensitivity.MEDIUM,
+    val matchBackgroundColor: Boolean = true,
     val autoContrast: Boolean = true,
     val textColor: Int = 0xFF101010.toInt(),
     val textSizeScale: Float = 1f,
@@ -32,7 +40,9 @@ data class AppSettings(
     val keepOriginalOnFailure: Boolean = true,
 ) {
     fun toRenderStyle(): RenderStyle = RenderStyle(
-        bold = bold,
+        fontMode = fontMode,
+        fontWeightOverride = fontWeight,
+        autoSizeFromOriginal = autoSizeFromOriginal,
         autoContrast = autoContrast,
         textColor = textColor,
         strokeColor = if (autoContrast) 0xFFFFFFFF.toInt() else 0xFF0A0A0A.toInt(),
@@ -53,5 +63,7 @@ data class AppSettings(
         minLetterCount = 1,
         keepOriginalWhenFailed = keepOriginalOnFailure,
         boxExpansion = boxExpansion,
+        sfxSensitivity = sfxSensitivity,
+        matchBackgroundColor = matchBackgroundColor,
     )
 }

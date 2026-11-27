@@ -8,48 +8,82 @@ import com.manhwatranslate.core.model.TextRegion
 /**
  * Turns a detected text region into a pixel-accurate erase mask.
  *
- * The mask is built from two signals, both restricted to the detected line boxes:
- * a global distance to the estimated bubble colour (catches crisp lettering) and a local
- * contrast term against a 5x5 mean (catches low-contrast lettering and background gradients).
- * Closing then fills glyph interiors, and a final dilation covers anti-aliased edges.
+ * Three colours are estimated before anything is erased: the paper colour (the dominant colour
+ * of the area around the letters), the letter colour (the pixels furthest from that paper), and
+ * a quadratic surface through the paper pixels so gradients and shading are modelled. A pixel is
+ * lettering when it is far from the surface *and* closer to the letter colour than to the paper,
+ * which keeps artwork of a different colour inside the box from being erased.
  */
 class TextMaskBuilder(
     val options: Options = Options(),
 ) {
     data class Options(
         val padding: Int = 2,
+        val contextPadding: Int = 16,
         val linePadding: Int = 3,
-        val globalTolerance: Float = 42f,
-        val localTolerance: Float = 22f,
+        val globalTolerance: Float = 40f,
+        val inkAffinity: Float = 0.85f,
+        val strongDistanceFactor: Float = 2.5f,
+        val localTolerance: Float = 24f,
         val closingRadius: Int = 2,
         val dilation: Int = 2,
         val minCoverage: Float = 0.004f,
+        val fitSurface: Boolean = true,
     )
 
     fun build(image: ArgbImage, region: TextRegion): TextMask? {
         val bounds = region.box.expanded(options.padding).clamped(image.width, image.height) ?: return null
+        val context = region.box.expanded(options.contextPadding).clamped(image.width, image.height) ?: bounds
         val crop = image.crop(bounds)
         val width = crop.width
         val height = crop.height
         val pixels = crop.pixels
 
         val roi = buildRoi(region, bounds, width, height)
-        val background = estimateBackground(pixels, roi, width, height)
+        val paper = dominantRingColor(image, context)
+        val ink = estimateInkColor(pixels, roi, paper, options.globalTolerance)
+        val samples = buildSampleMask(pixels, paper, ink)
+        val surface = if (options.fitSurface) BackgroundSurface.fit(pixels, width, height, samples) else null
+        val backgroundAt = { x: Int, y: Int ->
+            if (surface != null) {
+                Colors.pack(
+                    0xFF,
+                    surface.redAt(x, y).toInt().coerceIn(0, 255),
+                    surface.greenAt(x, y).toInt().coerceIn(0, 255),
+                    surface.blueAt(x, y).toInt().coerceIn(0, 255),
+                )
+            } else {
+                paper
+            }
+        }
 
-        val mask = ByteArray(width * height)
         val localMeans = localMeanLuminance(pixels, width, height)
-        val tolerance = options.globalTolerance
-        val localTolerance = options.localTolerance
+        val mask = ByteArray(width * height)
         var marked = 0
-        for (index in mask.indices) {
-            if (roi[index].toInt() == 0) continue
-            val pixel = pixels[index]
-            val globalDistance = Colors.distanceTo(background.red, background.green, background.blue, pixel)
-            val localContrast = kotlin.math.abs(Colors.luminance(pixel) - localMeans[index])
-            val isText = globalDistance > tolerance || localContrast > localTolerance
-            if (isText) {
-                mask[index] = 1
-                marked++
+
+        for (y in 0 until height) {
+            val rowOffset = y * width
+            for (x in 0 until width) {
+                val index = rowOffset + x
+                if (roi[index].toInt() == 0) continue
+                val pixel = pixels[index]
+                val background = backgroundAt(x, y)
+                val backgroundDistance = Colors.distance(pixel, background)
+                if (backgroundDistance <= options.globalTolerance) {
+                    val localContrast = kotlin.math.abs(Colors.luminance(pixel) - localMeans[index])
+                    if (localContrast > options.localTolerance * 1.6f && backgroundDistance > 14f) {
+                        mask[index] = 1
+                        marked++
+                    }
+                    continue
+                }
+                val inkDistance = Colors.distance(pixel, ink)
+                val closerToInk = inkDistance < backgroundDistance * options.inkAffinity
+                val stronglyDifferent = backgroundDistance > options.globalTolerance * options.strongDistanceFactor
+                if (closerToInk || stronglyDifferent) {
+                    mask[index] = 1
+                    marked++
+                }
             }
         }
 
@@ -62,11 +96,13 @@ class TextMaskBuilder(
             } else {
                 return null
             }
-        } else {
+        }
+
+        val metrics = InkAnalyzer.analyze(mask, width, height)
+        if (!fillRectangle) {
             Morphology.close(mask, width, height, options.closingRadius)
             Morphology.dilate(mask, width, height, options.dilation)
         }
-
         if (Morphology.countSet(mask) == 0) return null
 
         return TextMask(
@@ -75,9 +111,12 @@ class TextMaskBuilder(
             width = width,
             height = height,
             data = mask,
-            backgroundArgb = Colors.pack(0xFF, background.red, background.green, background.blue),
-            backgroundContrast = background.stdDev,
+            backgroundArgb = surface?.argbAt(width / 2, height / 2) ?: paper,
+            backgroundContrast = paperTexture(pixels, samples, width, height),
             fillRectangle = fillRectangle,
+            inkArgb = ink,
+            surface = surface,
+            metrics = metrics,
         )
     }
 
@@ -108,80 +147,162 @@ class TextMaskBuilder(
         return roi
     }
 
-    private data class Background(val red: Int, val green: Int, val blue: Int, val stdDev: Float)
-
-    private fun estimateBackground(
-        pixels: IntArray,
-        roi: ByteArray,
-        width: Int,
-        height: Int,
-    ): Background {
-        var r = 0L
-        var g = 0L
-        var b = 0L
-        var count = 0
+    /**
+     * Pixels the background surface may be fitted through: the ones closer to the paper colour
+     * than to the letter colour, so lettering and artwork of another colour are left out.
+     */
+    private fun buildSampleMask(pixels: IntArray, paper: Int, ink: Int): ByteArray {
+        val samples = ByteArray(pixels.size)
+        if (Colors.distance(paper, ink) < 30f) {
+            java.util.Arrays.fill(samples, 1)
+            return samples
+        }
+        var kept = 0
         for (index in pixels.indices) {
-            if (roi[index].toInt() != 0) continue
             val pixel = pixels[index]
-            r += Colors.red(pixel)
-            g += Colors.green(pixel)
-            b += Colors.blue(pixel)
-            count++
+            if (Colors.distance(pixel, paper) <= Colors.distance(pixel, ink)) kept++ else samples[index] = 1
         }
-        if (count < 32) {
-            return estimateFromBorder(pixels, width, height)
+        if (kept < pixels.size / 20) {
+            for (index in pixels.indices) {
+                samples[index] = if (Colors.distance(pixels[index], paper) <= 60f) 0 else 1
+            }
         }
-        val meanR = (r / count).toInt()
-        val meanG = (g / count).toInt()
-        val meanB = (b / count).toInt()
-        var variance = 0.0
-        for (index in pixels.indices) {
-            if (roi[index].toInt() != 0) continue
-            val luminance = Colors.luminance(pixels[index])
-            val reference = Colors.luminance(meanR, meanG, meanB)
-            val diff = luminance - reference
-            variance += (diff * diff).toDouble()
-        }
-        return Background(meanR, meanG, meanB, kotlin.math.sqrt(variance / count).toFloat())
+        return samples
     }
 
-    private fun estimateFromBorder(pixels: IntArray, width: Int, height: Int): Background {
+    /**
+     * Colour of the paper around the letters, taken from the rim of the context box. The rim is
+     * almost always bubble, even when the box itself is half lettering, which a plain mode over
+     * the whole area can get wrong.
+     */
+    private fun dominantRingColor(image: ArgbImage, rect: RectI): Int {
+        val band = maxOf(2, minOf(rect.width, rect.height) / 5)
+        val counts = HashMap<Int, Int>()
+        var total = 0
+        for (y in rect.top until rect.bottom) {
+            for (x in rect.left until rect.right) {
+                val onRing = x < rect.left + band || x >= rect.right - band ||
+                    y < rect.top + band || y >= rect.bottom - band
+                if (!onRing) continue
+                val key = quantize(image.get(x, y))
+                counts[key] = (counts[key] ?: 0) + 1
+                total++
+            }
+        }
+        if (total == 0) return Colors.opaque(255, 255, 255)
+        var bestKey = 0
+        var bestCount = -1
+        for ((key, count) in counts) {
+            if (count > bestCount) {
+                bestCount = count
+                bestKey = key
+            }
+        }
         var r = 0L
         var g = 0L
         var b = 0L
-        var count = 0
-        val band = maxOf(1, minOf(width, height) / 12)
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val onBorder = x < band || y < band || x >= width - band || y >= height - band
-                if (!onBorder) continue
-                val pixel = pixels[y * width + x]
+        var n = 0
+        for (y in rect.top until rect.bottom) {
+            for (x in rect.left until rect.right) {
+                val onRing = x < rect.left + band || x >= rect.right - band ||
+                    y < rect.top + band || y >= rect.bottom - band
+                if (!onRing) continue
+                val pixel = image.get(x, y)
+                if (quantize(pixel) != bestKey) continue
                 r += Colors.red(pixel)
                 g += Colors.green(pixel)
                 b += Colors.blue(pixel)
-                count++
+                n++
             }
         }
-        if (count == 0) return Background(255, 255, 255, 0f)
-        val meanR = (r / count).toInt()
-        val meanG = (g / count).toInt()
-        val meanB = (b / count).toInt()
-        var variance = 0.0
-        val reference = Colors.luminance(meanR, meanG, meanB)
+        if (n == 0) return Colors.opaque(255, 255, 255)
+        return Colors.opaque((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+    }
+
+    private fun quantize(argb: Int): Int {
+        val r = Colors.red(argb) shr 4
+        val g = Colors.green(argb) shr 4
+        val b = Colors.blue(argb) shr 4
+        return (r shl 8) or (g shl 4) or b
+    }
+
+    /**
+     * Letters are the most common colour among the pixels of the line boxes that sit clearly
+     * away from the paper. A mode outvotes the long tail a background gradient leaves behind,
+     * which a median would drag into the middle of the gradient.
+     */
+    private fun estimateInkColor(
+        pixels: IntArray,
+        roi: ByteArray,
+        paper: Int,
+        tolerance: Float,
+    ): Int {
+        val counts = HashMap<Int, Int>()
+        for (index in pixels.indices) {
+            if (roi[index].toInt() == 0) continue
+            val pixel = pixels[index]
+            if (Colors.distance(pixel, paper) < tolerance * 1.2f) continue
+            val key = quantize(pixel)
+            counts[key] = (counts[key] ?: 0) + 1
+        }
+        if (counts.isEmpty()) {
+            return if (Colors.isDark(paper)) Colors.opaque(255, 255, 255) else Colors.opaque(0, 0, 0)
+        }
+        var bestKey = 0
+        var bestCount = -1
+        for ((key, count) in counts) {
+            if (count > bestCount) {
+                bestCount = count
+                bestKey = key
+            }
+        }
+        var r = 0L
+        var g = 0L
+        var b = 0L
+        var n = 0
+        for (index in pixels.indices) {
+            if (roi[index].toInt() == 0) continue
+            val pixel = pixels[index]
+            if (quantize(pixel) != bestKey) continue
+            r += Colors.red(pixel)
+            g += Colors.green(pixel)
+            b += Colors.blue(pixel)
+            n++
+        }
+        if (n == 0) return Colors.opaque(0, 0, 0)
+        return Colors.opaque((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+    }
+
+    /**
+     * How busy the paper is from one pixel to the next. A flat bubble scores near zero and is
+     * refilled from the surface; grainy, shaded or painted ones score high and are diffused from
+     * their neighbours so the fill keeps the texture instead of laying a smooth patch on it.
+     */
+    private fun paperTexture(
+        pixels: IntArray,
+        samples: ByteArray,
+        width: Int,
+        height: Int,
+    ): Float {
+        var sum = 0.0
+        var count = 0
         for (y in 0 until height) {
             for (x in 0 until width) {
-                val onBorder = x < band || y < band || x >= width - band || y >= height - band
-                if (!onBorder) continue
-                val diff = Colors.luminance(pixels[y * width + x]) - reference
-                variance += (diff * diff).toDouble()
+                val index = y * width + x
+                if (samples[index].toInt() != 0) continue
+                val here = Colors.luminance(pixels[index])
+                if (x + 1 < width && samples[index + 1].toInt() == 0) {
+                    sum += kotlin.math.abs(here - Colors.luminance(pixels[index + 1])).toDouble()
+                    count++
+                }
+                if (y + 1 < height && samples[index + width].toInt() == 0) {
+                    sum += kotlin.math.abs(here - Colors.luminance(pixels[index + width])).toDouble()
+                    count++
+                }
             }
         }
-        return Background(
-            meanR,
-            meanG,
-            meanB,
-            kotlin.math.sqrt(variance / count.coerceAtLeast(1)).toFloat(),
-        )
+        if (count == 0) return 0f
+        return (sum / count).toFloat()
     }
 
     /** Separable 5x5 box mean of luminance, clamped at the borders. */

@@ -13,6 +13,9 @@ class TextMask(
     val backgroundArgb: Int,
     val backgroundContrast: Float,
     val fillRectangle: Boolean = false,
+    val inkArgb: Int = 0,
+    val surface: BackgroundSurface? = null,
+    val metrics: InkMetrics = InkMetrics.Empty,
 ) {
     init {
         require(data.size == width * height) { "Mask size mismatch" }

@@ -1,11 +1,15 @@
 package com.manhwatranslate.core.render
 
 import com.manhwatranslate.core.image.ArgbImage
+import com.manhwatranslate.core.layout.FontMode
+import com.manhwatranslate.core.layout.FontWeightLevel
 import com.manhwatranslate.core.layout.TextLayout
 
 /** How translated text is drawn. */
 data class RenderStyle(
-    val bold: Boolean = true,
+    val fontMode: FontMode = FontMode.AUTO,
+    val fontWeightOverride: FontWeightLevel? = null,
+    val autoSizeFromOriginal: Boolean = true,
     val autoContrast: Boolean = true,
     val textColor: Int = 0xFF101010.toInt(),
     val strokeColor: Int = 0xFFFFFFFF.toInt(),

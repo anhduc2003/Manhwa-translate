@@ -26,7 +26,7 @@ class Java2DCompositor(private val measurer: AwtTextMeasurer) : PageCompositor {
     private fun draw(graphics: Graphics2D, item: RenderItem) {
         val layout = item.layout
         val style = item.style
-        val font = measurer.font(layout.textSizePx, layout.bold)
+        val font = measurer.font(layout.textSizePx, layout.font)
         val context = graphics.fontRenderContext
         val alpha = (style.opacity.coerceIn(0f, 1f) * 255).toInt()
         val filled = Color(style.textColor, false).let { Color(it.red, it.green, it.blue, alpha) }

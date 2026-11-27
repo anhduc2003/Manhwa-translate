@@ -112,9 +112,10 @@ class HomeViewModel(
                         pageCount = total,
                         durationMs = result.elapsedMillis,
                         warnings = result.warnings,
+                        skippedCount = result.skipped.size,
                     )
                     if (firstPageId == null) firstPageId = page.id
-                    val summary = buildSummary(result.regions.size, result.translations, result.warnings)
+                    val summary = buildSummary(result.regions.size, result.translations, result.warnings, result.skipped.size)
                     if (index == total - 1) _events.tryEmit(HomeEvent.Message(summary))
                 } catch (error: OutOfMemoryError) {
                     _events.tryEmit(
@@ -178,13 +179,16 @@ class HomeViewModel(
         regionCount: Int,
         translations: List<com.manhwatranslate.core.model.RegionTranslation>,
         warnings: List<String>,
+        skippedCount: Int,
     ): String {
         val failed = translations.count { it.status == com.manhwatranslate.core.model.TranslationStatus.FAILED }
+        val suffix = if (skippedCount > 0) " · bỏ qua $skippedCount vùng SFX" else ""
         return when {
-            regionCount == 0 -> "Không tìm thấy chữ trên ảnh"
-            failed > 0 -> "Đã dịch $regionCount vùng, $failed vùng giữ nguyên do lỗi dịch"
+            regionCount == 0 -> "Không tìm thấy lời thoại trên ảnh$suffix"
+            failed > 0 -> "Đã dịch $regionCount vùng, $failed vùng giữ nguyên do lỗi dịch$suffix"
+            warnings.isNotEmpty() && warnings.first().startsWith("Bỏ qua") -> "Đã dịch $regionCount vùng$suffix"
             warnings.isNotEmpty() -> warnings.first()
-            else -> "Đã dịch $regionCount vùng chữ"
+            else -> "Đã dịch $regionCount vùng chữ$suffix"
         }
     }
 

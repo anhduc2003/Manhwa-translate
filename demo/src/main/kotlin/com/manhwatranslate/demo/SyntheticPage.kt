@@ -19,6 +19,10 @@ import kotlin.random.Random
  */
 class SyntheticPage(private val measurer: AwtTextMeasurer) {
 
+    private val BoldFont = com.manhwatranslate.core.layout.FontSpec(
+        weight = com.manhwatranslate.core.layout.FontWeightLevel.BOLD,
+    )
+
     data class Page(val image: BufferedImage, val texts: List<GroundTruthText>)
 
     data class GroundTruthText(
@@ -186,7 +190,7 @@ class SyntheticPage(private val measurer: AwtTextMeasurer) {
         val font = measurer.font(72f, bold = true)
         graphics.font = font
         val metrics = font.getLineMetrics(text, graphics.fontRenderContext)
-        val width = measurer.measureWidth(text, 72f, bold = true)
+        val width = measurer.measureWidth(text, 72f, BoldFont)
         val x = bounds.centerX - width / 2f
         val baseline = bounds.centerY + (metrics.ascent - metrics.descent) / 2f
         val glyphs = font.createGlyphVector(graphics.fontRenderContext, text)
@@ -225,12 +229,12 @@ class SyntheticPage(private val measurer: AwtTextMeasurer) {
         val font = measurer.font(fontSize, bold = true)
         graphics.font = font
         val metrics = font.getLineMetrics("Ag", graphics.fontRenderContext)
-        val lineHeight = measurer.lineHeight(fontSize, bold = true) * lineSpacing
+        val lineHeight = measurer.lineHeight(fontSize, BoldFont) * lineSpacing
         val blockHeight = lineHeight * lines.size
         val top = box.centerY - blockHeight / 2f
         val result = ArrayList<TextLine>()
         for ((index, line) in lines.withIndex()) {
-            val width = measurer.measureWidth(line, fontSize, bold = true)
+            val width = measurer.measureWidth(line, fontSize, BoldFont)
             val left = box.centerX - width / 2f
             val baseline = top + index * lineHeight + metrics.ascent
             graphics.color = color

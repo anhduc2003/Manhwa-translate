@@ -1,8 +1,10 @@
 package com.manhwatranslate.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.di.AppContainer
@@ -46,6 +48,35 @@ class SettingsViewModel(
     }
 
     fun apiKey(provider: TranslationProviderType): String = container.secretsStore.apiKey(provider)
+
+    fun importFont(uri: Uri) {
+        viewModelScope.launch {
+            runCatching { container.fontStore.import(uri) }
+                .onSuccess { name ->
+                    container.measurer.setCustomTypeface(container.fontStore.loadTypeface())
+                    container.settingsRepository.update {
+                        it.copy(customFontName = name, fontMode = FontMode.CUSTOM)
+                    }
+                    _state.value = _state.value.copy(message = "Đã tải font: $name")
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        message = error.message ?: "Không đọc được tệp font",
+                    )
+                }
+        }
+    }
+
+    fun clearFont() {
+        container.fontStore.clear()
+        container.measurer.setCustomTypeface(null)
+        viewModelScope.launch {
+            container.settingsRepository.update {
+                it.copy(customFontName = "", fontMode = FontMode.AUTO)
+            }
+        }
+        _state.value = _state.value.copy(message = "Đã xoá font tuỳ chỉnh")
+    }
 
     fun consumeMessage() {
         _state.value = _state.value.copy(message = null)
