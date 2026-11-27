@@ -7,6 +7,12 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// The CI runner sets MT_DEBUG_KEYSTORE to one cached key, which is what lets an APK install
+// over the last one; a local build without the variable keeps Gradle's own debug key.
+val sharedDebugKeystore: File? = System.getenv("MT_DEBUG_KEYSTORE")
+    ?.takeIf { it.isNotBlank() }
+    ?.let { file(it) }
+
 android {
     namespace = "com.manhwatranslate"
     compileSdk = 35
@@ -31,7 +37,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (sharedDebugKeystore != null) {
+            create("sharedDebug") {
+                storeFile = sharedDebugKeystore
+                storePassword = System.getenv("MT_DEBUG_KEYSTORE_PASSWORD") ?: "android"
+                keyAlias = System.getenv("MT_DEBUG_KEY_ALIAS") ?: "androiddebugkey"
+                keyPassword = System.getenv("MT_DEBUG_KEYSTORE_PASSWORD") ?: "android"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (sharedDebugKeystore != null) {
+                signingConfig = signingConfigs.getByName("sharedDebug")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
