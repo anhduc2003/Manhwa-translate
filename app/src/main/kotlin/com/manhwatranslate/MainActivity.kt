@@ -6,6 +6,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,7 +83,18 @@ private fun AppRoot(
     val application = androidx.compose.ui.platform.LocalContext.current.applicationContext
         as android.app.Application
 
-    NavHost(navController = navController, startDestination = "home") {
+    NavHost(
+        navController = navController,
+        startDestination = "home",
+        enterTransition = {
+            fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 14 }
+        },
+        exitTransition = { fadeOut(tween(150)) },
+        popEnterTransition = { fadeIn(tween(220)) },
+        popExitTransition = {
+            fadeOut(tween(150)) + slideOutHorizontally(tween(280)) { it / 14 }
+        },
+    ) {
         composable("home") {
             val factory = remember(container) {
                 viewModelFactory { initializer { HomeViewModel(application, container) } }

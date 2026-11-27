@@ -6,8 +6,6 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Message
-import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -16,6 +14,18 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +52,7 @@ import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,16 +84,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.manhwatranslate.web.AdBlocker
+import com.manhwatranslate.web.PageImage
 import com.manhwatranslate.web.WebImageBridge
+import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.ByteArrayInputStream
 
 /**
- * A reader for manhwa sites: a fixed address bar at the top, the page below it, and a settings
- * sheet for the ad blocker, the reader layout and the page translation.
+ * A reader for manhwa sites: an always-visible address bar in the top bar, the page underneath,
+ * a settings sheet for the ad blocker and the reader layout, and a button that translates every
+ * chapter image in place.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -94,16 +111,20 @@ fun WebReaderScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
-    val focus = LocalFocusManager.current
+    val focusManager = LocalFocusManager.current
     val blocker = viewModel.adBlocker
     var webView by remember { mutableStateOf<WebView?>(null) }
     var addressBar by rememberSaveable { mutableStateOf("") }
+    var pageLoaded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(Unit) {
         viewModel.onApplyImage = { index, url ->
-            webView?.evaluateJavascript("window.__mtApply($index, ${JSONObject.quote(url)})", null)
+            webView?.evaluateJavascript(
+                "window.__mtApply && window.__mtApply($index, ${JSONObject.quote(url)})",
+                null,
+            )
         }
     }
 
@@ -114,35 +135,72 @@ fun WebReaderScreen(
         }
     }
 
+    LaunchedEffect(state.clearSignal) {
+        if (state.clearSignal > 0) {
+            webView?.evaluateJavascript("window.__mtReset && window.__mtReset()", null)
+        }
+    }
+
+    var appliedDesktopMode by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(state.desktopMode) {
-        webView?.let { view ->
-            view.settings.userAgentString = if (state.desktopMode) DESKTOP_AGENT else MOBILE_AGENT
-            view.reload()
+        val previous = appliedDesktopMode
+        appliedDesktopMode = state.desktopMode
+        if (previous != null && previous != state.desktopMode) {
+            webView?.let { view ->
+                view.settings.userAgentString = userAgentFor(state.desktopMode)
+                view.reload()
+            }
         }
     }
 
     KeepScreenOn(state.keepAwake)
 
     fun open(input: String) {
-        val url = normalizeUrl(input) ?: return
+        val url = normalizeUrl(input)
+        if (url == null) {
+            viewModel.showMessage("Link không hợp lệ")
+            return
+        }
         addressBar = url
-        focus.clearFocus()
+        pageLoaded = false
+        focusManager.clearFocus()
         webView?.loadUrl(url)
     }
 
     fun pasteAndOpen() {
-        val clip = context.getSystemService(ClipboardManager::class.java)
-        val pasted = clip?.primaryClip
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        val text = clipboard?.primaryClip
             ?.takeIf { it.itemCount > 0 }
             ?.getItemAt(0)
             ?.coerceToText(context)
             ?.toString()
             ?.trim()
-        if (pasted.isNullOrBlank()) {
-            viewModel.showMessage("Bộ nhớ tạm không có link nào")
+        if (text.isNullOrBlank()) {
+            viewModel.showMessage("Bộ nhớ tạm không có link")
         } else {
-            addressBar = pasted
-            open(pasted)
+            open(text)
+        }
+    }
+
+    fun translatePage() {
+        val view = webView
+        if (view == null) {
+            viewModel.showMessage("Chưa có trang nào để dịch")
+            return
+        }
+        view.evaluateJavascript("typeof window.__mtScan === 'function'") { present ->
+            if (present?.trim('"') == "true") {
+                view.evaluateJavascript("window.__mtScan()") { raw ->
+                    viewModel.translatePageImages(parseScannedImages(raw), view.url.orEmpty())
+                }
+            } else {
+                injectReaderScripts(view, view.url.orEmpty(), viewModel, blocker)
+                view.postDelayed({
+                    view.evaluateJavascript("window.__mtScan ? window.__mtScan() : '[]'") { raw ->
+                        viewModel.translatePageImages(parseScannedImages(raw), view.url.orEmpty())
+                    }
+                }, 300)
+            }
         }
     }
 
@@ -156,34 +214,37 @@ fun WebReaderScreen(
         topBar = {
             Column {
                 TopAppBar(
-                title = {
-                    Column {
-                        Text("Đọc truyện trên web", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            text = when {
-                                state.translating -> "Đang dịch ${state.translatedCount}/${state.totalImages} ảnh"
-                                state.totalImages > 0 -> "Đã dịch ${state.translatedCount}/${state.totalImages} ảnh"
-                                state.adBlockEnabled -> "Chặn quảng cáo: bật"
-                                else -> "Chặn quảng cáo: tắt"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Quay lại")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { webView?.reload() }) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "Tải lại")
-                    }
-                    IconButton(onClick = { settingsOpen = true }) {
-                        Icon(Icons.Outlined.Tune, contentDescription = "Cài đặt web")
-                    }
-                },
+                    title = {
+                        Column {
+                            Text("Đọc truyện web", style = MaterialTheme.typography.titleMedium)
+                            AnimatedContent(
+                                targetState = subtitle(state),
+                                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                                label = "subtitle",
+                            ) { text ->
+                                Text(
+                                    text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Quay lại")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { webView?.reload() }) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = "Tải lại")
+                        }
+                        IconButton(onClick = { settingsOpen = true }) {
+                            Icon(Icons.Outlined.Tune, contentDescription = "Cài đặt")
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background,
                     ),
@@ -197,63 +258,75 @@ fun WebReaderScreen(
             }
         },
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .imePadding()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    if (state.translating) {
-                        LinearProgressIndicator(
-                            progress = {
-                                if (state.totalImages == 0) 0f
-                                else state.translatedCount.toFloat() / state.totalImages.toFloat()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                        )
-                        Spacer(Modifier.height(8.dp))
+                    AnimatedVisibility(
+                        visible = state.translating,
+                        enter = expandVertically(tween(220)) + fadeIn(tween(220)),
+                        exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
+                    ) {
+                        Column {
+                            val progress by animateFloatAsState(
+                                targetValue = if (state.totalImages == 0) 0f
+                                else state.translatedCount.toFloat() / state.totalImages,
+                                animationSpec = tween(420, easing = FastOutSlowInEasing),
+                                label = "translateProgress",
+                            )
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                         Text(
-                            text = if (state.totalImages > 0) {
-                                "Chạm vào một khung chữ trên ảnh để sửa bản dịch"
-                            } else {
-                                "Dán link truyện ở ô phía trên rồi bấm Mở"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = hint(state, pageLoaded),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
                         Button(
-                            onClick = {
-                                val view = webView ?: return@Button
-                                view.evaluateJavascript(
-                                    "window.__mtScanImages ? window.__mtScanImages() : -1",
-                                ) { result ->
-                                    val total = result?.trim('"')?.toIntOrNull() ?: -1
-                                    if (total < 0) {
-                                        view.evaluateJavascript(blocker.imageBridgeScript, null)
-                                        view.postDelayed({
-                                            view.evaluateJavascript(
-                                                "window.__mtScanImages ? window.__mtScanImages() : 0",
-                                            ) { second ->
-                                                viewModel.onScanStarted(second?.trim('"')?.toIntOrNull() ?: 0)
-                                            }
-                                        }, 250)
-                                    } else {
-                                        viewModel.onScanStarted(total)
-                                    }
-                                }
-                            },
+                            onClick = { translatePage() },
                             enabled = !state.translating,
                             shape = RoundedCornerShape(50),
                         ) {
-                            Icon(Icons.Outlined.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Dịch ảnh trên trang")
+                            AnimatedContent(
+                                targetState = state.translating,
+                                transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(120)) },
+                                label = "translateButton",
+                            ) { running ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (running) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Outlined.AutoFixHigh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (running) "Đang dịch ${state.translatedCount}/${state.totalImages}"
+                                        else "Dịch ảnh",
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -261,121 +334,116 @@ fun WebReaderScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            if (state.loading) {
+        Box(Modifier.padding(padding)) {
+            AnimatedVisibility(
+                visible = state.loading,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(250)),
+            ) {
+                val loadProgress by animateFloatAsState(
+                    targetValue = state.progress / 100f,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    label = "loadProgress",
+                )
                 LinearProgressIndicator(
-                    progress = { state.progress / 100f },
+                    progress = { loadProgress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp),
                 )
             }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.loadWithOverviewMode = true
-                            settings.useWideViewPort = true
-                            settings.builtInZoomControls = true
-                            settings.displayZoomControls = false
-                            settings.javaScriptCanOpenWindowsAutomatically = false
-                            settings.setSupportMultipleWindows(false)
-                            settings.mediaPlaybackRequiresUserGesture = true
-                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                            settings.loadsImagesAutomatically = true
-                            settings.blockNetworkImage = false
-                            settings.userAgentString = MOBILE_AGENT
-                            setBackgroundColor(0xFFFFFFFF.toInt())
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { view ->
+                    WebView(view).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.loadWithOverviewMode = true
+                        settings.useWideViewPort = true
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
+                        settings.javaScriptCanOpenWindowsAutomatically = false
+                        settings.setSupportMultipleWindows(false)
+                        settings.mediaPlaybackRequiresUserGesture = true
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                        settings.loadsImagesAutomatically = true
+                        settings.blockNetworkImage = false
+                        settings.userAgentString = userAgentFor(viewModel.state.value.desktopMode)
+                        setBackgroundColor(0xFFFFFFFF.toInt())
 
-                            CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+                        CookieManager.getInstance().setAcceptCookie(true)
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldInterceptRequest(
-                                    view: WebView,
-                                    request: WebResourceRequest,
-                                ): WebResourceResponse? {
-                                    val url = request.url
-                                    if (url.host == WebImageBridge.LOCAL_HOST) {
-                                        val token = url.lastPathSegment ?: return emptyResponse()
-                                        val bytes = viewModel.bridge.serve(token) ?: return emptyResponse()
-                                        return WebResourceResponse(
-                                            "image/png",
-                                            null,
-                                            ByteArrayInputStream(bytes),
-                                        )
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView,
+                                request: WebResourceRequest,
+                            ): WebResourceResponse? {
+                                val url = request.url
+                                if (url.host == WebImageBridge.LOCAL_HOST) {
+                                    val token = url.lastPathSegment
+                                    val body = token?.let { viewModel.bridge.serve(it) }
+                                    return if (body == null) {
+                                        emptyResponse()
+                                    } else {
+                                        WebResourceResponse("image/png", null, ByteArrayInputStream(body))
                                     }
-                                    val current = viewModel.state.value
-                                    if (current.adBlockEnabled && blocker.shouldBlock(url.toString())) {
-                                        return blockedResponse()
-                                    }
-                                    return null
                                 }
-
-                                override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                                    viewModel.onLoadStarted()
-                                    addressBar = url.orEmpty()
+                                val current = viewModel.state.value
+                                if (current.adBlockEnabled && blocker.shouldBlock(url.toString())) {
+                                    return blockedResponse()
                                 }
-
-                                override fun onPageFinished(view: WebView, url: String?) {
-                                    viewModel.onLoadFinished()
-                                    injectReaderScripts(view, url.orEmpty(), viewModel, blocker)
-                                }
-
-                                override fun shouldOverrideUrlLoading(
-                                    view: WebView,
-                                    request: WebResourceRequest,
-                                ): Boolean {
-                                    val target = request.url.toString()
-                                    if (!target.startsWith("http")) return true
-                                    return false
-                                }
+                                return null
                             }
 
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onProgressChanged(view: WebView, newProgress: Int) {
-                                    viewModel.onProgress(newProgress)
-                                }
-
-                                override fun onCreateWindow(
-                                    view: WebView,
-                                    isDialog: Boolean,
-                                    isUserGesture: Boolean,
-                                    resultMsg: Message,
-                                ): Boolean = false
+                            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                                pageLoaded = false
+                                addressBar = url.orEmpty()
+                                viewModel.onLoadStarted()
                             }
 
-                            addJavascriptInterface(viewModel.bridge, "AndroidImages")
-                            webView = this
+                            override fun onPageFinished(view: WebView, url: String?) {
+                                pageLoaded = true
+                                viewModel.onLoadFinished()
+                                viewModel.onPageUrl(url.orEmpty())
+                                injectReaderScripts(view, url.orEmpty(), viewModel, blocker)
+                            }
+
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest,
+                            ): Boolean = !request.url.toString().startsWith("http")
                         }
-                    },
-                    update = { view -> webView = view },
+
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                                viewModel.onProgress(newProgress)
+                            }
+                        }
+
+                        webView = this
+                    }
+                },
+                update = { webView = it },
+            )
+            AnimatedVisibility(
+                visible = !pageLoaded && !state.loading,
+                enter = fadeIn(tween(240)) + slideInVertically(tween(240)) { it / 12 },
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(160)) { it / 12 },
+            ) {
+                EmptyReader(
+                    onPaste = { pasteAndOpen() },
+                    modifier = Modifier.fillMaxSize(),
                 )
-                if (addressBar.isBlank() && !state.loading && state.totalImages == 0) {
-                    EmptyReader(
-                        onPaste = { pasteAndOpen() },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                    )
-                }
             }
         }
     }
 
     if (settingsOpen) {
-        ModalBottomSheet(onDismissRequest = { settingsOpen = false }, sheetState = sheetState) {
+        ModalBottomSheet(
+            onDismissRequest = { settingsOpen = false },
+            sheetState = sheetState,
+        ) {
             WebSettingsSheet(
                 state = state,
                 onToggleAds = { viewModel.toggleAdBlock() },
@@ -383,12 +451,12 @@ fun WebReaderScreen(
                 onToggleReader = { viewModel.setReaderMode(it) },
                 onToggleDesktop = { viewModel.setDesktopMode(it) },
                 onToggleKeepAwake = { viewModel.setKeepAwake(it) },
-                onClearCookies = { viewModel.clearCookies() },
                 onClearTranslations = { viewModel.clearTranslated() },
+                onClearCookies = { viewModel.clearCookies() },
                 onOpenExternal = {
-                    val url = addressBar.ifBlank { webView?.url.orEmpty() }
-                    if (url.isNotBlank()) {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    val target = webView?.url ?: addressBar
+                    if (target.isNotBlank()) {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
                     }
                     settingsOpen = false
                 },
@@ -399,36 +467,70 @@ fun WebReaderScreen(
     DisposableEffect(Unit) {
         onDispose {
             viewModel.onApplyImage = null
-            webView?.let { view ->
-                view.stopLoading()
-                view.loadUrl("about:blank")
-                view.destroy()
+            webView?.let {
+                it.loadUrl("about:blank")
+                it.destroy()
             }
             webView = null
         }
     }
 }
 
+private fun subtitle(state: WebReaderUiState): String = when {
+    state.translating -> "Đang dịch ${state.translatedCount}/${state.totalImages} ảnh"
+    state.totalImages > 0 -> "Đã dịch ${state.translatedCount} ảnh"
+    state.adBlockEnabled -> "Chặn quảng cáo: bật"
+    else -> "Chặn quảng cáo: tắt"
+}
+
+private fun hint(state: WebReaderUiState, pageLoaded: Boolean): String = when {
+    state.translating -> "Đang dịch ảnh trong trang, giữ màn hình mở"
+    state.totalImages > 0 -> "Đã dịch xong, vuốt để đọc bản dịch"
+    pageLoaded -> "Bấm Dịch ảnh để dịch toàn bộ ảnh trong trang"
+    else -> "Dán link truyện ở ô trên rồi bấm Mở"
+}
+
+private fun parseScannedImages(raw: String?): List<PageImage> {
+    if (raw.isNullOrBlank() || raw == "null") return emptyList()
+    return runCatching {
+        val value = JSONTokener(raw).nextValue()
+        val array = when (value) {
+            is JSONArray -> value
+            is String -> JSONArray(value)
+            else -> return emptyList()
+        }
+        (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val src = item.optString("src").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            PageImage(
+                index = item.optInt("i", index),
+                src = src,
+                width = item.optInt("w", 0),
+                height = item.optInt("h", 0),
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
 @Composable
 private fun EmptyReader(onPaste: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier, contentAlignment = Alignment.Center) {
+    Box(modifier.padding(24.dp), contentAlignment = Alignment.Center) {
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
             shape = RoundedCornerShape(20.dp),
+            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surface,
         ) {
             Column(
-                Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Chưa mở trang truyện nào", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
+                Text("Chưa mở trang nào", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Sao chép link chương truyện, rồi bấm nút bên dưới hoặc dán vào ô phía trên.",
+                    "Dán link chương truyện ở ô trên rồi bấm Mở, hoặc bấm nút bên dưới để lấy link từ bộ nhớ tạm.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(14.dp))
                 Button(onClick = onPaste, shape = RoundedCornerShape(50)) {
                     Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -448,30 +550,26 @@ private fun AddressBar(
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
         Row(
-            modifier = Modifier
+            Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Dán link truyện (https://…)") },
+                placeholder = { Text("Dán link truyện ở đây", style = MaterialTheme.typography.bodyMedium) },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { onOpen() }),
-                trailingIcon = {
-                    IconButton(onClick = onPaste) {
-                        Icon(Icons.Outlined.ContentPaste, contentDescription = "Dán link")
-                    }
-                },
             )
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = onOpen, shape = RoundedCornerShape(16.dp)) {
-                Text("Mở")
+            IconButton(onClick = onPaste) {
+                Icon(Icons.Outlined.ContentPaste, contentDescription = "Dán link")
             }
+            Button(onClick = onOpen, shape = RoundedCornerShape(14.dp)) { Text("Mở") }
         }
     }
 }
@@ -484,8 +582,8 @@ private fun WebSettingsSheet(
     onToggleReader: (Boolean) -> Unit,
     onToggleDesktop: (Boolean) -> Unit,
     onToggleKeepAwake: (Boolean) -> Unit,
-    onClearCookies: () -> Unit,
     onClearTranslations: () -> Unit,
+    onClearCookies: () -> Unit,
     onOpenExternal: () -> Unit,
 ) {
     Column(
@@ -493,75 +591,74 @@ private fun WebSettingsSheet(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(bottom = 28.dp),
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("Cài đặt trình đọc", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(4.dp))
 
-        SettingSwitch("Chặn quảng cáo", "Tắt cả bộ lọc và script dọn trang", state.adBlockEnabled) { onToggleAds() }
+        SettingSwitch("Chặn quảng cáo", "Bật hoặc tắt toàn bộ bộ lọc", state.adBlockEnabled) { onToggleAds() }
+        SettingSwitch("Chế độ đọc", "Ảnh vừa khung, ẩn thanh bên", state.readerMode, onToggleReader)
+        SettingSwitch("Máy tính", "Giả lập trình duyệt desktop", state.desktopMode, onToggleDesktop)
+        SettingSwitch("Giữ màn hình sáng", "Không tắt màn hình khi đang đọc", state.keepAwake, onToggleKeepAwake)
+
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-        Text("Bộ lọc quảng cáo", style = MaterialTheme.typography.titleMedium)
-        Text(
-            text = if (state.blockerReady) {
-                "Đang dùng ${state.blockerSources.size} bộ lọc, tổng " +
-                    "${state.blockerCounts.filterKeys { it in state.blockerSources }.values.sum()} tên miền"
-            } else {
-                "Đang nạp bộ lọc…"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        com.manhwatranslate.web.AdBlocker.SOURCES.forEach { source ->
+        Text("Nguồn bộ lọc", style = MaterialTheme.typography.titleMedium)
+        AdBlocker.SOURCES.forEach { source ->
             Row(
-                modifier = Modifier
+                Modifier
                     .fillMaxWidth()
                     .clickable { onToggleSource(source.id) }
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(source.label, style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        text = "${source.hint} · ${state.blockerCounts[source.id] ?: 0} tên miền",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = if (state.blockerReady) {
+                            "${source.hint} · ${state.blockerCounts[source.id] ?: 0} tên miền"
+                        } else {
+                            source.hint
+                        },
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Switch(
                     checked = source.id in state.blockerSources,
-                    onCheckedChange = { onToggleSource(source.id) },
+                    onCheckedChange = { _ -> onToggleSource(source.id) },
                 )
             }
         }
+
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-        SettingSwitch("Chế độ đọc", "Ảnh rộng hết khung, ẩn cột và popup thừa", state.readerMode, onToggleReader)
-        SettingSwitch("Chế độ máy tính", "Dùng user-agent desktop cho trang chỉ hỗ trợ web", state.desktopMode, onToggleDesktop)
-        SettingSwitch("Giữ màn hình sáng", "Không tắt màn hình khi đang đọc", state.keepAwake, onToggleKeepAwake)
-
-        Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onClearTranslations, modifier = Modifier.fillMaxWidth()) {
+            Text("Xoá bản dịch đã dán vào trang")
+        }
+        Spacer(Modifier.height(4.dp))
+        OutlinedButton(onClick = onClearCookies, modifier = Modifier.fillMaxWidth()) {
+            Text("Xoá cookie của trang")
+        }
+        Spacer(Modifier.height(4.dp))
         OutlinedButton(onClick = onOpenExternal, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Mở bằng trình duyệt ngoài")
         }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onClearTranslations, modifier = Modifier.fillMaxWidth()) {
-            Text("Xoá bản dịch đã lưu trong phiên này")
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onClearCookies, modifier = Modifier.fillMaxWidth()) {
-            Text("Xoá cookie của trang")
-        }
     }
 }
 
 @Composable
-private fun SettingSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SettingSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
-        modifier = Modifier
+        Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -569,12 +666,12 @@ private fun SettingSwitch(title: String, subtitle: String, checked: Boolean, onC
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = { onChange(it) })
     }
 }
 
@@ -583,9 +680,11 @@ private fun KeepScreenOn(enabled: Boolean) {
     val context = LocalContext.current
     DisposableEffect(enabled) {
         val activity = context as? Activity
-        if (enabled) activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (enabled) {
+            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         onDispose {
-            if (enabled) activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 }
@@ -594,30 +693,34 @@ private fun injectReaderScripts(
     view: WebView,
     url: String,
     viewModel: WebReaderViewModel,
-    blocker: com.manhwatranslate.web.AdBlocker,
+    blocker: AdBlocker,
 ) {
     val state = viewModel.state.value
-    val css = JSONObject.quote(blocker.cssFor(url))
-    view.evaluateJavascript(
-        "(function(){var s=document.getElementById('mt-guard');" +
-            "if(!s){s=document.createElement('style');s.id='mt-guard';document.documentElement.appendChild(s);}" +
-            "s.textContent=$css;})()",
-        null,
-    )
-    if (state.adBlockEnabled) view.evaluateJavascript(blocker.pageScript, null)
+    view.evaluateJavascript(blocker.imageBridgeScript, null)
+    if (state.adBlockEnabled) {
+        val css = JSONObject.quote(blocker.cssFor(url))
+        view.evaluateJavascript(
+            "(function(){var s=document.getElementById('mt-guard');" +
+                "if(!s){s=document.createElement('style');s.id='mt-guard';" +
+                "document.documentElement.appendChild(s);}s.textContent=$css;})()",
+            null,
+        )
+        view.evaluateJavascript(blocker.pageScript, null)
+    }
     if (state.readerMode) {
         view.evaluateJavascript(
             "(function(){var s=document.getElementById('mt-reader');" +
-                "if(!s){s=document.createElement('style');s.id='mt-reader';document.documentElement.appendChild(s);}" +
-                "s.textContent='img,canvas,video{max-width:100%!important;height:auto!important;}" +
-                "body{overflow-x:hidden!important;}' + " +
-                "'aside,[class*=\"sidebar\"],[class*=\"related\"],[class*=\"comment\"]{display:none!important;}'" +
-                ";})()",
+                "if(!s){s=document.createElement('style');s.id='mt-reader';" +
+                "document.documentElement.appendChild(s);}" +
+                "s.textContent='img,canvas{max-width:100%!important;height:auto!important;}'+" +
+                "'body{overflow-x:hidden!important;}';})()",
             null,
         )
     }
-    view.evaluateJavascript(blocker.imageBridgeScript, null)
 }
+
+private fun userAgentFor(desktop: Boolean): String =
+    if (desktop) DESKTOP_AGENT else MOBILE_AGENT
 
 private const val MOBILE_AGENT =
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -636,9 +739,10 @@ private fun emptyResponse(): WebResourceResponse =
 private fun normalizeUrl(input: String): String? {
     val trimmed = input.trim()
     if (trimmed.isEmpty()) return null
-    return when {
+    val withScheme = when {
         trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
         trimmed.contains('.') && !trimmed.contains(' ') -> "https://$trimmed"
-        else -> null
+        else -> return null
     }
+    return withScheme.takeIf { runCatching { Uri.parse(it).host }.getOrNull() != null }
 }

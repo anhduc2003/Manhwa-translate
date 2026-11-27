@@ -5,10 +5,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.di.AppContainer
+import com.manhwatranslate.web.PageImage
 import com.manhwatranslate.web.WebImageBridge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class WebReaderUiState(
@@ -25,6 +27,7 @@ data class WebReaderUiState(
     val translating: Boolean = false,
     val translatedCount: Int = 0,
     val totalImages: Int = 0,
+    val failedCount: Int = 0,
     val message: String? = null,
     val clearSignal: Int = 0,
 )
@@ -51,20 +54,33 @@ class WebReaderViewModel(
         settingsProvider = { settings },
         onTranslated = { index, token ->
             val url = "https://${WebImageBridge.LOCAL_HOST}/page/$token"
-            _state.value = _state.value.copy(translatedCount = _state.value.translatedCount + 1)
+            _state.update { it.copy(translatedCount = it.translatedCount + 1) }
             onApplyImage?.invoke(index, url)
         },
         onFailed = { index, reason ->
-            if (index < 0) {
-                _state.value = _state.value.copy(message = reason)
+            _state.update { current ->
+                if (index < 0) {
+                    current.copy(message = reason)
+                } else {
+                    current.copy(failedCount = current.failedCount + 1)
+                }
             }
         },
         onProgress = { done, total ->
-            _state.value = _state.value.copy(
-                translatedCount = done,
-                totalImages = maxOf(total, _state.value.totalImages),
-                translating = total > 0 && done < total,
-            )
+            _state.update { current ->
+                val finished = total > 0 && done >= total
+                current.copy(
+                    translatedCount = done,
+                    totalImages = maxOf(total, current.totalImages),
+                    translating = total > 0 && !finished,
+                    message = when {
+                        finished && current.failedCount > 0 ->
+                            "Đã dịch xong, ${current.failedCount} ảnh lỗi"
+                        finished -> "Đã dịch xong $done ảnh"
+                        else -> current.message
+                    },
+                )
+            }
         },
     )
 
@@ -96,7 +112,13 @@ class WebReaderViewModel(
     }
 
     fun onLoadStarted() {
-        _state.value = _state.value.copy(loading = true, progress = 0, translatedCount = 0, totalImages = 0)
+        _state.value = _state.value.copy(
+            loading = true,
+            progress = 0,
+            translatedCount = 0,
+            totalImages = 0,
+            failedCount = 0,
+        )
     }
 
     fun onProgress(progress: Int) {
@@ -107,13 +129,26 @@ class WebReaderViewModel(
         _state.value = _state.value.copy(loading = false)
     }
 
-    fun onScanStarted(total: Int) {
+    fun onPageUrl(url: String) {
+        bridge.setPageUrl(url)
+    }
+
+    /** Queues the images the reader found on the page; the bridge reports back as they finish. */
+    fun translatePageImages(images: List<PageImage>, pageUrl: String) {
+        if (images.isEmpty()) {
+            _state.value = _state.value.copy(
+                message = "Không tìm thấy ảnh truyện nào trên trang này",
+            )
+            return
+        }
+        bridge.setPageUrl(pageUrl)
         _state.value = _state.value.copy(
-            translating = total > 0,
-            totalImages = total,
+            translating = true,
+            totalImages = images.size,
             translatedCount = 0,
-            message = if (total == 0) "Không tìm thấy ảnh truyện nào trên trang" else null,
+            failedCount = 0,
         )
+        bridge.translate(images)
     }
 
     fun toggleAdBlock() {
@@ -129,6 +164,7 @@ class WebReaderViewModel(
         _state.value = _state.value.copy(
             translatedCount = 0,
             totalImages = 0,
+            failedCount = 0,
             translating = false,
             clearSignal = _state.value.clearSignal + 1,
         )

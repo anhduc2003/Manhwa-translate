@@ -242,40 +242,77 @@ class AdBlocker(private val assetReader: (String) -> String?) {
         })();
     """.trimIndent()
 
-    /** Pulls the page's main strip images out for translation. */
+    /**
+     * Finds the chapter images on the page and swaps in the translated ones. The app reads the
+     * list from `__mtScan`, downloads and translates each image itself, then calls `__mtApply`
+     * with the local URL of the result. Images are fetched natively rather than read from a
+     * canvas because a canvas holding a cross-origin image is tainted and `toDataURL` throws.
+     */
     val imageBridgeScript: String = """
         (function () {
-          if (window.__mtScanImages) return 0;
+          if (window.__mtReader) return 0;
+          window.__mtReader = true;
           window.__mtImages = [];
-          window.__mtScanImages = function () {
-            var candidates = Array.prototype.slice.call(document.querySelectorAll('img'))
-              .filter(function (img) {
-                var rect = img.getBoundingClientRect();
-                var src = img.currentSrc || img.src || '';
-                if (!src || src.indexOf('data:') === 0) return false;
-                if (img.__mtTranslated) return false;
-                return rect.width >= 200 && rect.height >= 250;
+          window.__mtScan = function () {
+            var found = [];
+            var images = document.querySelectorAll('img');
+            for (var i = 0; i < images.length; i++) {
+              var img = images[i];
+              if (img.__mtTranslated) continue;
+              var src = img.currentSrc || img.src || '';
+              if (src.indexOf('data:') === 0 || src.indexOf('blob:') === 0) src = '';
+              if (!src) {
+                var lazy = img.getAttribute('data-src') ||
+                  img.getAttribute('data-original') ||
+                  img.getAttribute('data-lazy-src') ||
+                  img.getAttribute('data-url');
+                if (lazy && lazy.indexOf('http') === 0) src = lazy;
+              }
+              if (!src) continue;
+              var rect = img.getBoundingClientRect();
+              if (rect.width < 300 && img.naturalWidth < 300) continue;
+              if (rect.height > 0 && rect.height < 120 &&
+                  img.naturalHeight > 0 && img.naturalHeight < 120) continue;
+              found.push({
+                i: window.__mtImages.length,
+                src: src,
+                w: Math.round(rect.width),
+                h: Math.round(rect.height)
               });
-            window.__mtImages = candidates;
-            return candidates.length;
-          };
-          window.__mtTranslateIndex = function (index) {
-            var img = window.__mtImages[index];
-            if (!img) return false;
-            var canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
-            canvas.getContext('2d').drawImage(img, 0, 0);
-            var data = canvas.toDataURL('image/jpeg', 0.92);
-            window.ManhwaTranslate.submit(index, data, canvas.width, canvas.height);
-            return true;
+              window.__mtImages.push(img);
+            }
+            return JSON.stringify(found);
           };
           window.__mtApply = function (index, url) {
             var img = window.__mtImages[index];
             if (!img) return false;
+            if (img.__mtOriginal === undefined) img.__mtOriginal = img.currentSrc || img.src;
+            img.removeAttribute('srcset');
+            img.removeAttribute('sizes');
+            img.removeAttribute('data-src');
+            img.removeAttribute('data-original');
+            img.removeAttribute('data-lazy-src');
+            img.removeAttribute('data-url');
+            img.style.transition = 'opacity .25s ease';
+            img.style.opacity = '0.35';
+            img.addEventListener('load', function () { img.style.opacity = '1'; }, { once: true });
             img.src = url;
             img.__mtTranslated = true;
             return true;
+          };
+          window.__mtReset = function () {
+            var restored = 0;
+            for (var i = 0; i < window.__mtImages.length; i++) {
+              var img = window.__mtImages[i];
+              if (img && img.__mtOriginal) {
+                img.src = img.__mtOriginal;
+                img.__mtTranslated = false;
+                img.style.opacity = '1';
+                restored++;
+              }
+            }
+            window.__mtImages = [];
+            return restored;
           };
         })();
     """.trimIndent()

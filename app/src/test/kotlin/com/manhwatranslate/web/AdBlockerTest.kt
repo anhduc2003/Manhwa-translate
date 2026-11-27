@@ -46,9 +46,12 @@ class AdBlockerTest {
     @Test
     fun `the image bridge exposes the calls the page needs`() {
         val script = AdBlocker({ null }).imageBridgeScript
+        assertTrue(script.contains("__mtScan"))
         assertTrue(script.contains("__mtApply"))
-        assertTrue(script.contains("__mtScanImages"))
-        assertTrue(script.contains("ManhwaTranslate.submit"))
+        assertTrue(script.contains("__mtReset"))
+        assertTrue(script.contains("JSON.stringify"))
+        assertFalse(script.contains("toDataURL"))
+        assertFalse(script.contains("ManhwaTranslate.submit"))
     }
 
     @Test
