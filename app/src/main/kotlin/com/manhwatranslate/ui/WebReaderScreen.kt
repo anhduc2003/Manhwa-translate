@@ -26,20 +26,24 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -47,9 +51,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LayersClear
 import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
@@ -88,18 +95,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.manhwatranslate.ui.components.AppTopBar
+import com.manhwatranslate.ui.components.GroupCard
+import com.manhwatranslate.ui.components.NavRow
+import com.manhwatranslate.ui.components.RowDivider
+import com.manhwatranslate.ui.components.SectionTitle
+import com.manhwatranslate.ui.components.ToggleRow
 import com.manhwatranslate.web.AdBlocker
 import com.manhwatranslate.web.PageImage
 import com.manhwatranslate.web.WebImageBridge
+import java.io.ByteArrayInputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
-import java.io.ByteArrayInputStream
 
 /**
  * A reader for manhwa sites: an always-visible address bar in the top bar, the page underneath,
@@ -246,30 +261,10 @@ fun WebReaderScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text("Đọc truyện web", style = MaterialTheme.typography.titleMedium)
-                            AnimatedContent(
-                                targetState = subtitle(state),
-                                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-                                label = "subtitle",
-                            ) { text ->
-                                Text(
-                                    text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Quay lại")
-                        }
-                    },
+                AppTopBar(
+                    title = "Đọc trên web",
+                    subtitle = subtitle(state),
+                    onBack = onBack,
                     actions = {
                         if (state.details.isNotEmpty()) {
                             IconButton(onClick = { detailsOpen = true }) {
@@ -283,9 +278,6 @@ fun WebReaderScreen(
                             Icon(Icons.Outlined.Tune, contentDescription = "Cài đặt")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                    ),
                 )
                 AddressBar(
                     value = addressBar,
@@ -296,13 +288,21 @@ fun WebReaderScreen(
             }
         },
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-                Column(
+            Column {
+                Box(
                     Modifier
                         .fillMaxWidth()
-                        .imePadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                ) {
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                )
+                Surface(color = MaterialTheme.colorScheme.surface) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .imePadding()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
                     AnimatedVisibility(
                         visible = state.translating,
                         enter = expandVertically(tween(220)) + fadeIn(tween(220)),
@@ -337,7 +337,7 @@ fun WebReaderScreen(
                         Button(
                             onClick = { translatePage() },
                             enabled = !state.translating,
-                            shape = RoundedCornerShape(50),
+                            shape = CircleShape,
                         ) {
                             AnimatedContent(
                                 targetState = state.translating,
@@ -366,6 +366,7 @@ fun WebReaderScreen(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -524,12 +525,12 @@ private fun subtitle(state: WebReaderUiState): String = when {
 }
 
 private fun hint(state: WebReaderUiState, pageLoaded: Boolean): String = when {
-    state.translating -> "Đang dịch ảnh trong trang, giữ màn hình mở"
+    state.translating -> "Giữ màn hình mở trong lúc dịch"
     state.totalImages > 0 && state.timing.isNotBlank() ->
         "Đã dịch xong · ${state.timing}"
-    state.totalImages > 0 -> "Đã dịch xong, vuốt để đọc bản dịch"
-    pageLoaded -> "Bấm Dịch ảnh để dịch toàn bộ ảnh trong trang"
-    else -> "Dán link truyện ở ô trên rồi bấm Mở"
+    state.totalImages > 0 -> "Đã dịch xong · vuốt để đọc"
+    pageLoaded -> "Dịch mọi ảnh trong trang"
+    else -> "Dán link rồi bấm Mở"
 }
 
 private fun parseScannedImages(raw: String?): List<PageImage> {
@@ -556,28 +557,42 @@ private fun parseScannedImages(raw: String?): List<PageImage> {
 
 @Composable
 private fun EmptyReader(onPaste: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.padding(24.dp), contentAlignment = Alignment.Center) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            tonalElevation = 2.dp,
-            color = MaterialTheme.colorScheme.surface,
+    Box(modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(
-                Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(64.dp),
             ) {
-                Text("Chưa mở trang nào", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Dán link chương truyện ở ô trên rồi bấm Mở, hoặc bấm nút bên dưới để lấy link từ bộ nhớ tạm.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = onPaste, shape = RoundedCornerShape(50)) {
-                    Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Dán link và mở")
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Outlined.Public,
+                        contentDescription = null,
+                        modifier = Modifier.size(28.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text("Chưa mở trang nào", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Dán link chương truyện để đọc và dịch ảnh ngay trên trang.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(4.dp))
+            Button(onClick = onPaste, shape = CircleShape) {
+                Icon(
+                    Icons.Outlined.ContentPaste,
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Dán link và mở")
             }
         }
     }
@@ -590,11 +605,12 @@ private fun AddressBar(
     onOpen: () -> Unit,
     onPaste: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+    Surface(color = MaterialTheme.colorScheme.background) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -602,16 +618,36 @@ private fun AddressBar(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Dán link truyện ở đây", style = MaterialTheme.typography.bodyMedium) },
+                placeholder = { Text("Dán link truyện", style = MaterialTheme.typography.bodyMedium) },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                shape = CircleShape,
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.Public,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                trailingIcon = {
+                    IconButton(onClick = onPaste) {
+                        Icon(
+                            Icons.Outlined.ContentPaste,
+                            contentDescription = "Dán link",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { onOpen() }),
             )
-            IconButton(onClick = onPaste) {
-                Icon(Icons.Outlined.ContentPaste, contentDescription = "Dán link")
+            Button(
+                onClick = onOpen,
+                shape = CircleShape,
+                modifier = Modifier.height(48.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp),
+            ) {
+                Text("Mở", fontWeight = FontWeight.SemiBold)
             }
-            Button(onClick = onOpen, shape = RoundedCornerShape(14.dp)) { Text("Mở") }
         }
     }
 }
@@ -633,87 +669,81 @@ private fun WebSettingsSheet(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Cài đặt trình đọc", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(4.dp))
+        Text("Trình đọc", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(2.dp))
 
-        SettingSwitch("Chặn quảng cáo", "Bật hoặc tắt toàn bộ bộ lọc", state.adBlockEnabled) { onToggleAds() }
-        SettingSwitch("Chế độ đọc", "Ảnh vừa khung, ẩn thanh bên", state.readerMode, onToggleReader)
-        SettingSwitch("Máy tính", "Giả lập trình duyệt desktop", state.desktopMode, onToggleDesktop)
-        SettingSwitch("Giữ màn hình sáng", "Không tắt màn hình khi đang đọc", state.keepAwake, onToggleKeepAwake)
+        GroupCard {
+            ToggleRow(
+                title = "Chặn quảng cáo",
+                checked = state.adBlockEnabled,
+                onCheckedChange = { onToggleAds() },
+            )
+            RowDivider()
+            ToggleRow(
+                title = "Chế độ đọc",
+                subtitle = "Ảnh vừa khung, ẩn thanh bên",
+                checked = state.readerMode,
+                onCheckedChange = onToggleReader,
+            )
+            RowDivider()
+            ToggleRow(
+                title = "Máy tính",
+                subtitle = "Giả lập trình duyệt desktop",
+                checked = state.desktopMode,
+                onCheckedChange = onToggleDesktop,
+            )
+            RowDivider()
+            ToggleRow(
+                title = "Giữ màn hình sáng",
+                checked = state.keepAwake,
+                onCheckedChange = onToggleKeepAwake,
+            )
+        }
 
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-        Text("Nguồn bộ lọc", style = MaterialTheme.typography.titleMedium)
-        AdBlocker.SOURCES.forEach { source ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggleSource(source.id) }
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(source.label, style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        text = if (state.blockerReady) {
-                            "${source.hint} · ${state.blockerCounts[source.id] ?: 0} tên miền"
-                        } else {
-                            source.hint
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
+        SectionTitle("Nguồn bộ lọc", modifier = Modifier.padding(top = 4.dp))
+        GroupCard {
+            AdBlocker.SOURCES.forEachIndexed { index, source ->
+                if (index > 0) RowDivider()
+                ToggleRow(
+                    title = source.label,
+                    subtitle = if (state.blockerReady) {
+                        "${state.blockerCounts[source.id] ?: 0} tên miền"
+                    } else {
+                        source.hint
+                    },
                     checked = source.id in state.blockerSources,
-                    onCheckedChange = { _ -> onToggleSource(source.id) },
+                    onCheckedChange = { onToggleSource(source.id) },
                 )
             }
         }
 
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-        OutlinedButton(onClick = onClearTranslations, modifier = Modifier.fillMaxWidth()) {
-            Text("Xoá bản dịch đã dán vào trang")
-        }
-        Spacer(Modifier.height(4.dp))
-        OutlinedButton(onClick = onClearCookies, modifier = Modifier.fillMaxWidth()) {
-            Text("Xoá cookie của trang")
-        }
-        Spacer(Modifier.height(4.dp))
-        OutlinedButton(onClick = onOpenExternal, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Mở bằng trình duyệt ngoài")
-        }
-    }
-}
-
-@Composable
-private fun SettingSwitch(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SectionTitle("Dữ liệu", modifier = Modifier.padding(top = 4.dp))
+        GroupCard {
+            NavRow(
+                icon = Icons.Outlined.LayersClear,
+                title = "Xoá bản dịch trên trang",
+                showChevron = false,
+                onClick = onClearTranslations,
+            )
+            RowDivider()
+            NavRow(
+                icon = Icons.Outlined.CleaningServices,
+                title = "Xoá cookie của trang",
+                showChevron = false,
+                onClick = onClearCookies,
+            )
+            RowDivider()
+            NavRow(
+                icon = Icons.Outlined.OpenInNew,
+                title = "Mở bằng trình duyệt ngoài",
+                showChevron = false,
+                onClick = onOpenExternal,
             )
         }
-        Switch(checked = checked, onCheckedChange = { onChange(it) })
+        Spacer(Modifier.height(4.dp))
     }
 }
 

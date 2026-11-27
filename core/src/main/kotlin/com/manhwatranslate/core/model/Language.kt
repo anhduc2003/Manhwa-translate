@@ -83,7 +83,7 @@ enum class TranslationProviderType(
     OPENAI_COMPATIBLE(
         label = "OpenAI / tương thích",
         requiresApiKey = true,
-        hint = "Dùng được với OpenAI, DeepSeek, Groq, OpenRouter… Chất lượng cao nhất vì dịch theo ngữ cảnh cả trang.",
+        hint = "Dùng được với OpenAI, DeepSeek, Groq, OpenRouter. Chất lượng cao nhất vì dịch theo ngữ cảnh cả trang.",
     ),
     GEMINI(
         label = "Google Gemini",
