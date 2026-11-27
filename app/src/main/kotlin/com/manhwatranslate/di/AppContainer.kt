@@ -18,6 +18,7 @@ import com.manhwatranslate.translate.GeminiTranslationProvider
 import com.manhwatranslate.translate.GoogleCloudTranslationProvider
 import com.manhwatranslate.translate.GoogleFreeTranslationProvider
 import com.manhwatranslate.translate.LibreTranslateProvider
+import com.manhwatranslate.translate.LocalLlmTranslationProvider
 import com.manhwatranslate.translate.MlKitTranslationProvider
 import com.manhwatranslate.translate.MyMemoryTranslationProvider
 import com.manhwatranslate.translate.OpenAiTranslationProvider
@@ -62,6 +63,9 @@ class AppContainer(context: Context) {
     fun providerFor(settings: AppSettings): TranslationProvider = when (settings.provider) {
         TranslationProviderType.FREE_AUTO -> FreeProviders.chain(settings.libreTranslateUrl)
         TranslationProviderType.ON_DEVICE -> onDeviceTranslator
+        TranslationProviderType.LOCAL_LLM -> LocalLlmTranslationProvider(
+            modelPath = settings.localLlmModelPath,
+        )
         TranslationProviderType.GOOGLE_FREE -> GoogleFreeTranslationProvider()
         TranslationProviderType.MYMEMORY -> MyMemoryTranslationProvider()
         TranslationProviderType.LIBRE_TRANSLATE -> LibreTranslateProvider(settings.libreTranslateUrl)
@@ -91,6 +95,7 @@ class AppContainer(context: Context) {
      */
     private fun backupsFor(settings: AppSettings): List<TranslationProvider> = when {
         settings.provider == TranslationProviderType.ON_DEVICE -> emptyList()
+        settings.provider == TranslationProviderType.LOCAL_LLM -> emptyList()
         settings.provider == TranslationProviderType.FREE_AUTO -> listOf(onDeviceTranslator)
         else -> listOf(FreeProviders.chain(settings.libreTranslateUrl), onDeviceTranslator)
     }

@@ -82,6 +82,7 @@ import coil.compose.AsyncImage
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.SavedPage
+import com.manhwatranslate.ui.components.AppLogo
 import com.manhwatranslate.ui.components.GroupCard
 import com.manhwatranslate.ui.components.IconTile
 import com.manhwatranslate.ui.components.Pill
@@ -229,7 +230,6 @@ internal fun HomeContent(
 
 @Composable
 private fun HomeHeader(onOpenSettings: () -> Unit) {
-    val accents = LocalAccents.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -237,20 +237,7 @@ private fun HomeHeader(onOpenSettings: () -> Unit) {
             .padding(start = 20.dp, end = 15.dp, top = 8.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Brush.linearGradient(listOf(accents.heroStart, accents.heroEnd))),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "M",
-                color = accents.onHero,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Black,
-            )
-        }
+        AppLogo(size = 32.dp)
         Spacer(Modifier.width(11.dp))
         Text(
             text = "Manhwa Translate",
@@ -684,6 +671,7 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
 private fun TranslationProviderType.shortLabel(): String = when (this) {
     TranslationProviderType.FREE_AUTO -> "Miễn phí"
     TranslationProviderType.ON_DEVICE -> "ML Kit"
+    TranslationProviderType.LOCAL_LLM -> "LLM máy"
     TranslationProviderType.GOOGLE_FREE -> "Google Dịch"
     TranslationProviderType.MYMEMORY -> "MyMemory"
     TranslationProviderType.LIBRE_TRANSLATE -> "LibreTranslate"

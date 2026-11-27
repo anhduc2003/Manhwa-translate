@@ -9,3 +9,5 @@
 -keepclasseswithmembers class com.manhwatranslate.** { kotlinx.serialization.KSerializer serializer(...); }
 -dontwarn okhttp3.**
 -dontwarn okio.**
+-keep class de.kherud.llama.** { *; }
+-dontwarn de.kherud.llama.**
