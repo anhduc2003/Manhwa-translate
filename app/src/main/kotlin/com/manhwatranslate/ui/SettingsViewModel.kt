@@ -8,6 +8,9 @@ import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.di.AppContainer
+import com.manhwatranslate.translate.DownloadProgress
+import com.manhwatranslate.translate.HttpJson
+import com.manhwatranslate.translate.ModelDownloader
 import com.manhwatranslate.translate.FreeProviders
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +21,8 @@ data class SettingsUiState(
     val settings: AppSettings = AppSettings(),
     val configuredKeys: Set<TranslationProviderType> = emptySet(),
     val message: String? = null,
+    val downloadingModel: Boolean = false,
+    val downloadProgress: DownloadProgress = DownloadProgress(),
 )
 
 class SettingsViewModel(
@@ -27,6 +32,8 @@ class SettingsViewModel(
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
+
+    private val modelDownloader = ModelDownloader(getApplication(), HttpJson.client)
 
     init {
         viewModelScope.launch {
@@ -181,6 +188,47 @@ class SettingsViewModel(
             }
         }
     }
+
+    /**
+     * Downloads a .gguf model straight from [SettingsUiState.settings]'s URL and remembers it as
+     * the active offline model. Progress is published on the main state flow so the settings
+     * screen can show the bar; an error is surfaced as a message instead of crashing a page.
+     */
+    fun downloadLlmModel() {
+        val url = _state.value.settings.localLlmModelUrl.trim()
+        if (url.isBlank()) {
+            _state.value = _state.value.copy(message = "Nhập URL của mô hình .gguf trước")
+            return
+        }
+        if (_state.value.downloadingModel) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(downloadingModel = true, downloadProgress = DownloadProgress())
+            runCatching {
+                modelDownloader.download(url) { progress ->
+                    _state.value = _state.value.copy(downloadProgress = progress)
+                }
+            }.onSuccess { model ->
+                container.settingsRepository.update {
+                    it.copy(
+                        localLlmModelPath = model.path,
+                        localLlmModelName = model.name,
+                    )
+                }
+                _state.value = _state.value.copy(
+                    downloadingModel = false,
+                    message = "Đã tải mô hình: ${model.name} (${formatMegabytes(model.bytes)})",
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    downloadingModel = false,
+                    message = error.message ?: "Tải mô hình thất bại",
+                )
+            }
+        }
+    }
+
+    private fun formatMegabytes(bytes: Long): String =
+        String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
 
     fun consumeMessage() {
         _state.value = _state.value.copy(message = null)

@@ -28,6 +28,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -107,6 +108,9 @@ fun SettingsScreen(
         onTestFree = { viewModel.testFreeSources() },
         onPickFont = onPickFont,
         onPickLlmModel = onPickLlmModel,
+        downloadingModel = state.downloadingModel,
+        downloadProgress = state.downloadProgress,
+        onDownloadLlmModel = { viewModel.downloadLlmModel() },
         onClearFont = { viewModel.clearFont() },
         onBack = onBack,
     )
@@ -125,6 +129,9 @@ internal fun SettingsContent(
     onTestFree: () -> Unit,
     onPickFont: () -> Unit,
     onPickLlmModel: () -> Unit,
+    downloadingModel: Boolean,
+    downloadProgress: com.manhwatranslate.translate.DownloadProgress,
+    onDownloadLlmModel: () -> Unit,
     onClearFont: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -280,6 +287,46 @@ internal fun SettingsContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = "Hoặc tải trực tiếp về máy",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = settings.localLlmModelUrl,
+                                onValueChange = { value -> onUpdate { it.copy(localLlmModelUrl = value) } },
+                                placeholder = { Text("https://…/model.Q4_K_M.gguf") },
+                                singleLine = true,
+                                enabled = !downloadingModel,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            if (downloadingModel) {
+                                LinearProgressIndicator(
+                                    progress = { downloadProgress.fraction.coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = if (downloadProgress.total > 0) {
+                                        "Đang tải… ${formatMegabytes(downloadProgress.bytes)} / ${formatMegabytes(downloadProgress.total)}"
+                                    } else {
+                                        "Đang tải… ${formatMegabytes(downloadProgress.bytes)}"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            Button(
+                                onClick = onDownloadLlmModel,
+                                enabled = !downloadingModel && settings.localLlmModelUrl.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(if (downloadingModel) "Đang tải…" else "Tải mô hình về máy")
+                            }
+                            Spacer(Modifier.height(8.dp))
                             OutlinedButton(onClick = onPickLlmModel, modifier = Modifier.fillMaxWidth()) {
                                 Text(if (settings.localLlmModelPath.isBlank()) "Chọn file mô hình" else "Đổi mô hình")
                             }
@@ -490,6 +537,9 @@ internal fun SettingsContent(
         }
     }
 }
+
+private fun formatMegabytes(bytes: Long): String =
+    String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
 
 @Composable
 private fun ChoiceRow(
