@@ -3,8 +3,10 @@ package com.manhwatranslate.core.translate
 import com.manhwatranslate.core.model.RegionTranslation
 import com.manhwatranslate.core.model.TranslationStatus
 
-private fun RegionTranslation.isReal(): Boolean =
-    (status == TranslationStatus.DONE || status == TranslationStatus.EDITED) && translatedText.isNotBlank()
+/** True when this entry carries an actual translation rather than the source it was given. */
+fun RegionTranslation.isRealTranslation(): Boolean =
+    (status == TranslationStatus.DONE || status == TranslationStatus.EDITED) &&
+        translatedText.isNotBlank()
 
 /**
  * Combines a refreshed translation pass with the one it follows, region by region. A fresh
@@ -18,7 +20,7 @@ fun mergeTranslations(
     val before = previous.associateBy { it.regionId }
     val merged = fresh.map { entry ->
         val old = before[entry.regionId]
-        if (entry.isReal() || old == null || !old.isReal()) entry else old
+        if (entry.isRealTranslation() || old == null || !old.isRealTranslation()) entry else old
     }
     val seen = fresh.mapTo(HashSet()) { it.regionId }
     return merged + previous.filter { it.regionId !in seen }

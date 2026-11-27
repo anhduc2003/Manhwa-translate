@@ -253,12 +253,35 @@ class AdBlocker(private val assetReader: (String) -> String?) {
           if (window.__mtReader) return 0;
           window.__mtReader = true;
           window.__mtImages = [];
+
+          /**
+           * A chapter page is a tall strip of artwork; the site's logo, its ad banners and the
+           * reaction GIFs in the comments are not. Queuing those cost a download, a decode and a
+           * full OCR pass each, and replacing an animated GIF with one still frame looked broken.
+           */
+          function mtWorthTranslating(img, src) {
+            if (/\.gif(\?|$)/i.test(src)) return false;
+            if (img.complete && img.naturalWidth === 0) return false;
+            var rect = img.getBoundingClientRect();
+            if (rect.width < 150 && rect.height < 150) return false;
+            var nw = img.naturalWidth || 0;
+            var nh = img.naturalHeight || 0;
+            if (nw > 0 && nh > 0) {
+              // Covers, comment pictures and ad slots are small boxes; a page is a tall one.
+              if (rect.width * rect.height < 120000) return false;
+              if (nw >= nh * 1.2 && nh <= 700) return false;
+              return true;
+            }
+            // Not loaded yet: a lazy page still has its full-width box, a thumbnail does not.
+            return rect.width >= 250;
+          }
+
           window.__mtScan = function () {
             var found = [];
             var images = document.querySelectorAll('img');
             for (var i = 0; i < images.length; i++) {
               var img = images[i];
-              if (img.__mtTranslated) continue;
+              if (img.__mtTranslated || img.__mtQueued) continue;
               var src = img.currentSrc || img.src || '';
               if (src.indexOf('data:') === 0 || src.indexOf('blob:') === 0) src = '';
               if (!src) {
@@ -270,16 +293,15 @@ class AdBlocker(private val assetReader: (String) -> String?) {
               }
               if (!src) continue;
               if (/\.svg(\?|$)/i.test(src)) continue;
-              var rect = img.getBoundingClientRect();
-              if (rect.width < 300 && img.naturalWidth < 300) continue;
-              if (rect.height > 0 && rect.height < 120 &&
-                  img.naturalHeight > 0 && img.naturalHeight < 120) continue;
+              if (!mtWorthTranslating(img, src)) continue;
+              var box = img.getBoundingClientRect();
               found.push({
                 i: window.__mtImages.length,
                 src: src,
-                w: Math.round(rect.width),
-                h: Math.round(rect.height)
+                w: Math.round(box.width),
+                h: Math.round(box.height)
               });
+              img.__mtQueued = true;
               window.__mtImages.push(img);
             }
             return JSON.stringify(found);
@@ -297,20 +319,36 @@ class AdBlocker(private val assetReader: (String) -> String?) {
             img.style.transition = 'opacity .25s ease';
             img.style.opacity = '0.35';
             img.addEventListener('load', function () { img.style.opacity = '1'; }, { once: true });
+            // A page whose bytes are gone must not leave a broken or half-faded frame: put the
+            // site's own image back and let the next press try again.
+            img.addEventListener('error', function () {
+              if (img.__mtOriginal) img.src = img.__mtOriginal;
+              img.__mtTranslated = false;
+              img.__mtQueued = false;
+              img.style.opacity = '1';
+            }, { once: true });
             img.src = url;
             img.__mtTranslated = true;
+            return true;
+          };
+          window.__mtFail = function (index) {
+            var img = window.__mtImages[index];
+            if (!img) return false;
+            img.__mtQueued = false;
             return true;
           };
           window.__mtReset = function () {
             var restored = 0;
             for (var i = 0; i < window.__mtImages.length; i++) {
               var img = window.__mtImages[i];
-              if (img && img.__mtOriginal) {
+              if (!img) continue;
+              if (img.__mtOriginal) {
                 img.src = img.__mtOriginal;
-                img.__mtTranslated = false;
-                img.style.opacity = '1';
                 restored++;
               }
+              img.__mtTranslated = false;
+              img.__mtQueued = false;
+              img.style.opacity = '1';
             }
             window.__mtImages = [];
             return restored;

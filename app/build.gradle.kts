@@ -1,5 +1,19 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.compose.compiler)
+}
+
+// The CI runner sets MT_DEBUG_KEYSTORE to one cached key, which is what lets an APK install
+// over the last one; a local build without the variable keeps Gradle's own debug key.
+val sharedDebugKeystore: File? = System.getenv("MT_DEBUG_KEYSTORE")
+    ?.takeIf { it.isNotBlank() }
+    ?.let { file(it) }
+
+// A real distribution key, when one is supplied, outranks the shared CI key.
 val releaseKeystore = System.getenv("KEYSTORE_PATH")
 val releaseStorePassword = System.getenv("KEYSTORE_PASSWORD")
 val releaseKeyAlias = System.getenv("KEY_ALIAS")
@@ -7,13 +21,6 @@ val releaseKeyPassword = System.getenv("KEY_PASSWORD")
 val hasReleaseKeystore = !releaseKeystore.isNullOrBlank() &&
     !releaseStorePassword.isNullOrBlank() &&
     !releaseKeyAlias.isNullOrBlank()
-
-plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.compose.compiler)
-}
 
 android {
     namespace = "com.manhwatranslate"
@@ -23,8 +30,8 @@ android {
         applicationId = "com.manhwatranslate"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -48,14 +55,27 @@ android {
                 keyPassword = releaseKeyPassword ?: releaseStorePassword
             }
         }
+        if (sharedDebugKeystore != null) {
+            create("sharedDebug") {
+                storeFile = sharedDebugKeystore
+                storePassword = System.getenv("MT_DEBUG_KEYSTORE_PASSWORD") ?: "android"
+                keyAlias = System.getenv("MT_DEBUG_KEY_ALIAS") ?: "androiddebugkey"
+                keyPassword = System.getenv("MT_DEBUG_KEYSTORE_PASSWORD") ?: "android"
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (sharedDebugKeystore != null) {
+                signingConfig = signingConfigs.getByName("sharedDebug")
+            }
+        }
         release {
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            signingConfig = when {
+                hasReleaseKeystore -> signingConfigs.getByName("release")
+                sharedDebugKeystore != null -> signingConfigs.getByName("sharedDebug")
+                else -> signingConfigs.getByName("debug")
             }
             isMinifyEnabled = false
             proguardFiles(
@@ -91,6 +111,7 @@ dependencies {
     implementation(project(":core"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

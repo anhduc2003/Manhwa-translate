@@ -21,6 +21,31 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Gradle makes a debug key per machine when it cannot find one, so every run used to sign
+      # its APK with a fresh certificate and Android refused to install it over the previous
+      # build. One key kept in the Actions cache is what makes an update install in place; the
+      # path is passed to Gradle explicitly because the runner's ANDROID_SDK_HOME moves the
+      # directory Gradle looks in by default.
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: .keystore/debug.keystore
+          key: android-debug-keystore-v2
+
+      - name: Create the signing key when the cache is cold
+        run: |
+          mkdir -p .keystore
+          if [ ! -f .keystore/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore .keystore/debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          echo "MT_DEBUG_KEYSTORE=$GITHUB_WORKSPACE/.keystore/debug.keystore" >> "$GITHUB_ENV"
+          keytool -list -keystore .keystore/debug.keystore -storepass android | tail -2
+
       - name: Point Gradle at the preinstalled Android SDK
         run: |
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
@@ -36,6 +61,14 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Report the signing certificate
+        run: |
+          APKSIGNER=$(ls "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"/build-tools/*/apksigner 2>/dev/null | tail -1)
+          if [ -x "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs \
+              app/build/outputs/apk/debug/app-arm64-v8a-debug.apk | head -4
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

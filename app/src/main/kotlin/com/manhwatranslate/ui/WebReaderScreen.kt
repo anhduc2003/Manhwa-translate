@@ -147,6 +147,9 @@ fun WebReaderScreen(
                 null,
             )
         }
+        viewModel.onApplyFailed = { index ->
+            webView?.evaluateJavascript("window.__mtFail && window.__mtFail($index)", null)
+        }
     }
 
     LaunchedEffect(state.message) {
@@ -506,6 +509,7 @@ fun WebReaderScreen(
     DisposableEffect(Unit) {
         onDispose {
             viewModel.onApplyImage = null
+            viewModel.onApplyFailed = null
             webView?.let {
                 it.loadUrl("about:blank")
                 it.destroy()
