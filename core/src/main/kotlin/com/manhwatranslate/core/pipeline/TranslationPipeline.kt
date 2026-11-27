@@ -490,6 +490,7 @@ class TranslationPipeline(
                     "Nhận diện chữ (${index + 1}/${tiles.size})",
                 ),
             )
+            if (isFlat(tile.image)) return@forEachIndexed
             try {
                 val turned = if (pageOffsetY == 0) {
                     tile
@@ -518,6 +519,34 @@ class TranslationPipeline(
             ),
         )
         return grouped
+    }
+
+    /**
+     * A tile of one flat colour is a gutter or an empty margin between panels, and running four
+     * OCR models over it finds nothing. Sampled at a stride small enough that a glyph stroke
+     * still lands on a sample, so a tile with lettering on it is never mistaken for flat.
+     */
+    private companion object {
+        /** Luminance spread under which a tile holds one flat colour rather than artwork. */
+        const val FLAT_SHADE_SPAN = 20
+    }
+
+    private fun isFlat(image: ArgbImage): Boolean {
+        var low = 255
+        var high = 0
+        var y = 0
+        while (y < image.height) {
+            var x = 0
+            while (x < image.width) {
+                val shade = Colors.luminance(image.get(x, y)).toInt()
+                if (shade < low) low = shade
+                if (shade > high) high = shade
+                if (high - low > FLAT_SHADE_SPAN) return false
+                x += 3
+            }
+            y += 3
+        }
+        return true
     }
 
     private fun prepare(

@@ -212,6 +212,45 @@ class TranslationPipelineTest {
         assertTrue(result.translations.all { it.translatedText.startsWith("DONG ") })
     }
 
+    @Test
+    fun `a flat tile is not sent to the recognizer`() {
+        val seen = ArrayList<Int>()
+        val pipeline = TranslationPipeline(
+            recognizer = object : TileRecognizer {
+                override suspend fun recognize(
+                    tile: ImageTile,
+                    script: SourceScript,
+                ): List<TextRegion> {
+                    seen += tile.rect.top
+                    return emptyList()
+                }
+            },
+            translationService = TranslationService(
+                object : TranslationProvider {
+                    override val id = "test"
+                    override val displayName = "Test"
+                    override suspend fun translate(
+                        texts: List<String>,
+                        sourceLanguage: SourceScript,
+                        target: TranslationLanguage,
+                    ): List<String> = texts
+                },
+            ),
+            measurer = FakeMonospaceMeasurer(),
+            compositor = object : PageCompositor {
+                override fun compose(page: ArgbImage, items: List<RenderItem>): ArgbImage = page
+            },
+        )
+        val page = ArgbImage.filled(600, 3000, Colors.opaque(250, 250, 250))
+        runBlocking {
+            pipeline.process(
+                page,
+                PipelineOptions(script = SourceScript.LATIN, maxTileHeight = 700),
+            )
+        }
+        assertTrue(seen.isEmpty(), "an empty margin has no lettering to recognize")
+    }
+
     /** Finds the dark blocks in whatever slice it is handed, like a real recognizer would. */
     private object DarkBlocks : TileRecognizer {        override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
             val found = ArrayList<TextRegion>()
