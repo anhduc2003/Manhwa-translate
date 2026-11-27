@@ -21,6 +21,28 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # A debug keystore is generated per machine, so before this step every run signed its APK
+      # with a fresh key and Android refused to install it over the previous build. The cache
+      # carries one key from run to run, which is what makes an update install in place.
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Create the signing key when the cache is cold
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | tail -2
+
       - name: Point Gradle at the preinstalled Android SDK
         run: |
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
