@@ -89,9 +89,11 @@ class MlKitTextRecognizer : TileRecognizer {
         /**
          * Upscaling helps small lettering, but recognition time follows the pixel count and a
          * narrow webtoon tile was being blown up to four megapixels before every model saw it.
-         * 2.6 MP still lifts 720 px pages by 1.4x, which is enough for ML Kit to read the text.
+         * 3.4 MP lifts a 720 px page by 1.6x and an 800 px strip by 1.5x, which reads the small
+         * lettering webtoon sites compress into their strips without paying the full cost of a
+         * four-megapixel tile on every model.
          */
-        const val RECOGNIZE_PIXEL_BUDGET = 2_600_000f
+        const val RECOGNIZE_PIXEL_BUDGET = 3_400_000f
     }
 
     private fun TextRegion.movedToPage(scale: Float, tile: ImageTile): TextRegion {

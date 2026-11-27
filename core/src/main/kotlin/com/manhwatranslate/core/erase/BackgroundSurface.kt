@@ -64,7 +64,7 @@ class BackgroundSurface(
             width: Int,
             height: Int,
             used: ByteArray,
-            sampleStep: Int = 2,
+            sampleStep: Int = 1,
         ): BackgroundSurface? {
             if (width < 3 || height < 3) return null
             val normal = Array(BASIS_SIZE) { FloatArray(BASIS_SIZE) }

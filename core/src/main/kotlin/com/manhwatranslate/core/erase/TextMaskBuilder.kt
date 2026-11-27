@@ -23,13 +23,13 @@ class TextMaskBuilder(
         val padding: Int = 2,
         val contextPadding: Int = 16,
         val linePadding: Int = 3,
-        val globalTolerance: Float = 40f,
-        val inkAffinity: Float = 0.85f,
+        val globalTolerance: Float = 36f,
+        val inkAffinity: Float = 0.8f,
         val strongDistanceFactor: Float = 2.5f,
-        val localTolerance: Float = 24f,
+        val localTolerance: Float = 26f,
         val closingRadius: Int = 2,
-        val dilation: Int = 3,
-        val minCoverage: Float = 0.004f,
+        val dilation: Int = 4,
+        val minCoverage: Float = 0.003f,
         val fitSurface: Boolean = true,
     )
 

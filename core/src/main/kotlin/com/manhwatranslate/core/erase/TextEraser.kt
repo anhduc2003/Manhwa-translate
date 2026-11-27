@@ -15,10 +15,12 @@ enum class EraseMode {
 data class EraseOptions(
     val mode: EraseMode = EraseMode.AUTO,
     val solidContrastThreshold: Float = 6f,
-    val diffusionPasses: Int = 2,
+    val diffusionPasses: Int = 3,
     val matchBackground: Boolean = true,
     /** After the fill, keeps going over ink the mask missed right next to it. */
     val removeResidualInk: Boolean = true,
+    /** Applies the seam colour correction on textured fills too, not just flat ones. */
+    val seamCorrectDiffusion: Boolean = true,
 )
 
 data class EraseStats(
@@ -57,6 +59,9 @@ class TextEraser(
             EraseMode.DIFFUSION -> {
                 erased = diffuse(target, mask)
                 smoothInsideMask(target, mask, passes = maxOf(1, options.diffusionPasses))
+                if (options.matchBackground && options.seamCorrectDiffusion && mask.surface != null) {
+                    applySeamCorrection(target, mask, mask.surface)
+                }
                 if (options.removeResidualInk) erased += eraseResidualInk(target, mask)
             }
             EraseMode.AUTO -> Unit
@@ -179,7 +184,7 @@ class TextEraser(
                     val pixel = pixels[pageIndex]
                     val paper = surface.argbAt(x, y)
                     val paperDistance = Colors.distance(pixel, paper)
-                    if (paperDistance <= 24f) continue
+                    if (paperDistance <= 20f) continue
                     if (Colors.distance(pixel, mask.inkArgb) >= paperDistance) continue
                     pixels[pageIndex] = paper
                     changed++
@@ -296,11 +301,17 @@ class TextEraser(
         }
         if (band.none { it }) return
         val scratch = IntArray(width * height)
+        // Also smooth the deep interior on textured fills so a patch does not carry a flat
+        // colour in the middle of a shaded or grainy bubble; the extra passes blend it with the
+        // surrounding texture instead of leaving a visible stain.
+        val core = BooleanArray(width * height) { index ->
+            mask.data[index].toInt() != 0 && interior[index].toInt() != 0
+        }
         repeat(passes) {
             for (y in 0 until height) {
                 for (x in 0 until width) {
                     val index = y * width + x
-                    if (!band[index]) continue
+                    if (!band[index] && !core[index]) continue
                     var a = 0
                     var r = 0
                     var g = 0
@@ -322,7 +333,7 @@ class TextEraser(
                 }
             }
             for (index in band.indices) {
-                if (!band[index]) continue
+                if (!band[index] && !core[index]) continue
                 pixels[(mask.top + index / width) * pageWidth + mask.left + index % width] = scratch[index]
             }
         }
