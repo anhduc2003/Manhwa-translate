@@ -11,8 +11,9 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 ## Tính năng
 
 - **Hai bộ nhận diện chữ**: ML Kit trên máy (mặc định) hoặc **PaddleOCR qua server** — chọn trong
-  Cài đặt → Nhận diện chữ, nhập địa chỉ server Hub Serving tự chạy:
-  `docker run -p 8866:8866 paddlepaddle/paddleocr` (hoặc `paddleocr serving --port 8866`).
+  Cài đặt → Nhận diện chữ, nhập địa chỉ server Hub Serving tự chạy. Cách nhanh nhất:
+  `pip install paddleocr paddlepaddle && paddleocr --server --port 8866` (hoặc dựng image
+  `paddlepaddle/paddle:2.4.0` rồi `hub install deploy/hubserving/ocr_system && hub serving start -m ocr_system`).
   App gửi từng dải ảnh dạng base64, nhận `text_region` + `text` + `confidence` rồi đổi toạ độ về
   trang gốc; PaddleOCR bắt chữ trên nền có hình tốt hơn ML Kit.
 - **Nhận diện chữ** bằng ML Kit (Latinh, Hàn, Trung, Nhật). Chế độ *Tự động* chạy cả bốn mô
