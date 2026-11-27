@@ -12,6 +12,7 @@ import com.manhwatranslate.core.render.PageCompositor
 import com.manhwatranslate.core.scan.ImageTiler
 import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.core.translate.TranslationService
+import com.manhwatranslate.core.translate.mergeTranslations
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.render.AndroidTextMeasurer
 
@@ -70,10 +71,11 @@ class TranslationEngine(
             target = options.target,
             minLetterCount = options.minLetterCount,
         )
-        val image = recompose(result.cleanedImage, result.regions, batch.translations, settings)
+        val translations = mergeTranslations(result.translations, batch.translations)
+        val image = recompose(result.cleanedImage, result.regions, translations, settings)
         return result.copy(
             image = image,
-            translations = batch.translations,
+            translations = translations,
             warnings = (result.warnings + batch.warnings).distinct(),
         )
     }

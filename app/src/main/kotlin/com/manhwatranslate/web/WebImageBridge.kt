@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.webkit.CookieManager
 import com.manhwatranslate.core.image.ArgbImage
+import com.manhwatranslate.core.image.ImagePlan
+import com.manhwatranslate.core.image.planImage
 import com.manhwatranslate.core.model.PageProcessingResult
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.model.PipelineProgress
@@ -358,7 +360,7 @@ class WebImageBridge(
         Fetched(null, "không tải được ảnh: ${error.message ?: error.javaClass.simpleName}")
     }
 
-    private suspend fun decode(bytes: ByteArray, plan: Plan): ArgbImage? =
+    private suspend fun decode(bytes: ByteArray, plan: ImagePlan): ArgbImage? =
         withContext(Dispatchers.Default) {
             val bitmap = BitmapFactory.decodeByteArray(
                 bytes,
@@ -384,20 +386,12 @@ class WebImageBridge(
         }
     }
 
-    private data class Plan(val sample: Int, val pixels: Int)
-
     /** Reads the image size without decoding it, so a page can be admitted to the pixel budget. */
-    private fun plan(bytes: ByteArray, maxPixels: Int): Plan? {
+    private fun plan(bytes: ByteArray, maxPixels: Int): ImagePlan? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (bounds.outWidth.toLong() * bounds.outHeight.toLong() /
-            (sample.toLong() * sample) > maxPixels
-        ) {
-            sample *= 2
-        }
-        return Plan(sample, (bounds.outWidth / sample) * (bounds.outHeight / sample))
+        return planImage(bounds.outWidth, bounds.outHeight, maxPixels)
     }
 
     /** Splits one image's processing time into on-device work and the translation round trips. */
