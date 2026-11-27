@@ -110,7 +110,7 @@ private fun LogoMark(scale: Float, alpha: Float, pulse: Float) {
             )
         }
         AppLogo(
-            size = 104.dp,
+            size = 124.dp,
             modifier = Modifier.graphicsLayer {
                 scaleX = scale
                 scaleY = scale
