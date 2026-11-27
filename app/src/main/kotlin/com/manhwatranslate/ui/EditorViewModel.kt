@@ -76,15 +76,10 @@ class EditorViewModel(
                 return@launch
             }
             val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val cleanedImage = container.projectStore.loadImage(page, PageImage.CLEANED)
-                    val sourceImage = container.projectStore.loadImage(page, PageImage.SOURCE)
-                    cleanedImage to sourceImage
-                }
+                runCatching { container.projectStore.loadImage(page, PageImage.CLEANED) }
             }
-            loaded.onSuccess { (cleanedImage, sourceImage) ->
+            loaded.onSuccess { cleanedImage ->
                 cleaned = cleanedImage
-                source = sourceImage
                 val result = composeResult(page, cleanedImage)
                 composed = result
                 _state.value = _state.value.copy(
@@ -120,16 +115,23 @@ class EditorViewModel(
 
     fun toggleOriginal() {
         val current = _state.value
+        val page = current.page ?: return
         val next = !current.showOriginal
-        val image = if (next) source else composed
         _state.value = current.copy(
             showOriginal = next,
             imageVersion = current.imageVersion + 1,
         )
         viewModelScope.launch {
-            val bitmap = image?.toImageBitmap()
+            val bitmap = if (next) sourceImage(page)?.toImageBitmap() else composed?.toImageBitmap()
             _state.value = _state.value.copy(image = bitmap)
         }
+    }
+
+    private suspend fun sourceImage(page: SavedPage): ArgbImage? {
+        source?.let { return it }
+        return withContext(Dispatchers.IO) {
+            runCatching { container.projectStore.loadImage(page, PageImage.SOURCE) }.getOrNull()
+        }?.also { source = it }
     }
 
     fun selectRegion(regionId: Int?) {
@@ -210,7 +212,11 @@ class EditorViewModel(
             withContext(Dispatchers.IO) {
                 container.projectStore.updatePage(page, composedImage)
             }
-            val display = (if (_state.value.showOriginal) source else composedImage)?.toImageBitmap()
+            val display = if (_state.value.showOriginal) {
+                sourceImage(page)?.toImageBitmap()
+            } else {
+                composedImage.toImageBitmap()
+            }
             _state.value = _state.value.copy(
                 busy = false,
                 page = page,
