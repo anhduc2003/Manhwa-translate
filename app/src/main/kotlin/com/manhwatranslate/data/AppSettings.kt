@@ -47,6 +47,8 @@ data class AppSettings(
     val libreTranslateUrl: String = "",
     val paddleOcrUrl: String = "http://192.168.1.10:8866",
     val paddleOcrToken: String = "",
+    val localLlmModelPath: String = "",
+    val localLlmModelName: String = "",
     val keepOriginalOnFailure: Boolean = true,
 ) {
     fun toRenderStyle(): RenderStyle = RenderStyle(

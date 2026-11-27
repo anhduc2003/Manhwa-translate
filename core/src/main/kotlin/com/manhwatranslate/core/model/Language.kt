@@ -76,6 +76,11 @@ enum class TranslationProviderType(
         requiresApiKey = false,
         hint = "Miễn phí, chạy offline sau khi tải gói ngôn ngữ (~30 MB). Chất lượng khá, phù hợp đọc nhanh.",
     ),
+    LOCAL_LLM(
+        label = "LLM trên máy (GGUF)",
+        requiresApiKey = false,
+        hint = "Chạy mô hình GGUF ngay trên thiết bị, không cần mạng hay API key. Nhập mô hình chất lượng nhỏ (Q4_K_M, 1–4 GB).",
+    ),
     GOOGLE_FREE(
         label = "Google Dịch (miễn phí)",
         requiresApiKey = false,

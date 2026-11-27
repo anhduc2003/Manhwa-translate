@@ -145,6 +145,43 @@ class SettingsViewModel(
         _state.value = _state.value.copy(message = "Đã xoá font tuỳ chỉnh")
     }
 
+    /**
+     * Copies the chosen .gguf model into app storage and remembers its path, so a page can be
+     * translated offline without the user keeping the source file around.
+     */
+    fun importLlmModel(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val resolver = getApplication<Application>().contentResolver
+                val name = resolver.query(
+                    uri,
+                    arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                } ?: "model.gguf"
+                val safeName = name.substringAfterLast('/').ifBlank { "model.gguf" }
+                val file = java.io.File(getApplication<Application>().filesDir, "models/$safeName")
+                file.parentFile?.mkdirs()
+                resolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("Không mở được tệp mô hình")
+                file.absolutePath to safeName
+            }.onSuccess { (path, name) ->
+                container.settingsRepository.update {
+                    it.copy(localLlmModelPath = path, localLlmModelName = name)
+                }
+                _state.value = _state.value.copy(message = "Đã nạp mô hình: $name")
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    message = error.message ?: "Không đọc được tệp mô hình",
+                )
+            }
+        }
+    }
+
     fun consumeMessage() {
         _state.value = _state.value.copy(message = null)
     }

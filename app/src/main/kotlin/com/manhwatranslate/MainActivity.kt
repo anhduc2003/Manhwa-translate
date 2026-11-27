@@ -168,12 +168,20 @@ private fun AppRoot(
                 val fontPicker = androidx.activity.compose.rememberLauncherForActivityResult(
                     contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
                 ) { uri -> uri?.let(settingsViewModel::importFont) }
+                val modelPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+                ) { uri -> uri?.let(settingsViewModel::importLlmModel) }
                 SettingsScreen(
                     viewModel = settingsViewModel,
                     onBack = { navController.popBackStack() },
                     onPickFont = {
                         fontPicker.launch(
                             arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream"),
+                        )
+                    },
+                    onPickLlmModel = {
+                        modelPicker.launch(
+                            arrayOf("application/octet-stream", "application/x-gguf", "*/*"),
                         )
                     },
                 )

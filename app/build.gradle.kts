@@ -97,6 +97,12 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // llama.cpp ships native libraries for every desktop OS inside the JAR; Android only
+            // needs the ABI lib it loads via System.loadLibrary, so drop the desktop ones.
+            excludes += "de/kherud/llama/Mac/**"
+            excludes += "de/kherud/llama/Windows/**"
+            excludes += "de/kherud/llama/Linux/x86_64/**"
+            excludes += "de/kherud/llama/Linux/aarch64/**"
         }
     }
 }
@@ -136,6 +142,8 @@ dependencies {
     implementation(libs.mlkit.text.recognition.chinese)
     implementation(libs.mlkit.text.recognition.japanese)
     implementation(libs.mlkit.translate)
+
+    implementation(libs.llama)
 
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)

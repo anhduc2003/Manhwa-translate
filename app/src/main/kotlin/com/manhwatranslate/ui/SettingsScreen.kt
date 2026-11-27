@@ -79,6 +79,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onPickFont: () -> Unit,
+    onPickLlmModel: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -105,6 +106,7 @@ fun SettingsScreen(
         onTestOcr = { viewModel.testOcrServer() },
         onTestFree = { viewModel.testFreeSources() },
         onPickFont = onPickFont,
+        onPickLlmModel = onPickLlmModel,
         onClearFont = { viewModel.clearFont() },
         onBack = onBack,
     )
@@ -122,6 +124,7 @@ internal fun SettingsContent(
     onTestOcr: () -> Unit,
     onTestFree: () -> Unit,
     onPickFont: () -> Unit,
+    onPickLlmModel: () -> Unit,
     onClearFont: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -253,6 +256,34 @@ internal fun SettingsContent(
                         onTest = onTestFree,
                         onUpdate = onUpdate,
                     )
+                }
+            }
+
+            if (settings.provider == TranslationProviderType.LOCAL_LLM) {
+                item {
+                    GroupCard {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                text = "Mô hình GGUF",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = if (settings.localLlmModelName.isNotBlank()) {
+                                    settings.localLlmModelName
+                                } else {
+                                    "Chưa chọn mô hình. Dùng checkpoint uncensored (Dolphin, WizardLM…) bản Q4_K_M để chạy mượt."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedButton(onClick = onPickLlmModel, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (settings.localLlmModelPath.isBlank()) "Chọn file mô hình" else "Đổi mô hình")
+                            }
+                        }
+                    }
                 }
             }
 
