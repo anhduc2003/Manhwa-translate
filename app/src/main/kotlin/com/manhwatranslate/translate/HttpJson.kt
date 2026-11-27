@@ -1,5 +1,6 @@
 package com.manhwatranslate.translate
 
+import com.manhwatranslate.core.translate.TranslationFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -11,15 +12,24 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-class TranslationException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/**
+ * A translation backend failed. [transient] marks the failures worth retrying: a timeout or a
+ * connection reset may pass on the next try, while a bad key, a spent quota or a 404 will fail
+ * exactly the same way and should go straight to the backup provider.
+ */
+class TranslationException(
+    message: String,
+    cause: Throwable? = null,
+    transient: Boolean = false,
+) : TranslationFailure(message, cause, transient)
 
 internal object HttpJson {
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 
     val json = Json {
@@ -50,16 +60,25 @@ internal object HttpJson {
         val response = try {
             client.newCall(builder.build()).execute()
         } catch (error: Exception) {
-            throw TranslationException("Không kết nối được tới máy chủ dịch: ${error.message}", error)
+            throw TranslationException(
+                "Không kết nối được tới máy chủ dịch: ${error.message}",
+                error,
+                transient = true,
+            )
         }
         response.use { result ->
             val raw = result.body?.string().orEmpty()
             if (!result.isSuccessful) {
-                throw TranslationException(messageFor(result.code, raw))
+                throw TranslationException(
+                    messageFor(result.code, raw),
+                    transient = transientFor(result.code),
+                )
             }
             raw
         }
     }
+
+    private fun transientFor(code: Int): Boolean = code == 429 || code in 500..599
 
     private fun messageFor(code: Int, raw: String): String {
         val detail = runCatching {

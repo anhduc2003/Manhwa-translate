@@ -129,6 +129,7 @@ class TranslationService(
             } catch (error: Throwable) {
                 lastError = error
                 if (error is kotlinx.coroutines.CancellationException) throw error
+                if (error is TranslationFailure && !error.transient) break
             }
             attempt++
         }

@@ -8,6 +8,17 @@ import com.manhwatranslate.core.model.TranslationLanguage
  * the same order; the on-device ML Kit model, Google Cloud, DeepL and any OpenAI-compatible
  * chat model all plug in here.
  */
+/**
+ * A backend failure. [transient] tells the caller whether the same request could succeed on a
+ * retry: a timeout or a 5xx may, while a bad key or a 404 never will, and those should go
+ * straight to the backup backend instead of spending another timeout.
+ */
+open class TranslationFailure(
+    message: String,
+    cause: Throwable? = null,
+    val transient: Boolean = true,
+) : Exception(message, cause)
+
 interface TranslationProvider {
     val id: String
 

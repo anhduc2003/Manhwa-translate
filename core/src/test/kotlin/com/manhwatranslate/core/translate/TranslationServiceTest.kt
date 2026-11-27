@@ -119,6 +119,54 @@ class TranslationServiceTest {
     }
 
     @Test
+    fun `a permanent failure is not retried`() = runBlocking {
+        var calls = 0
+        val provider = object : TranslationProvider {
+            override val id = "auth"
+            override val displayName = "Auth"
+            override suspend fun translate(
+                texts: List<String>,
+                sourceLanguage: SourceScript,
+                target: TranslationLanguage,
+            ): List<String> {
+                calls++
+                throw TranslationFailure("API key không hợp lệ", transient = false)
+            }
+        }
+        val service = TranslationService(provider, maxRetries = 3)
+        service.translate(
+            regions = listOf(region(0, "hello there")),
+            script = SourceScript.KOREAN,
+            target = TranslationLanguage.VIETNAMESE,
+        )
+        assertEquals(1, calls, "a rejected key will fail the same way every time")
+    }
+
+    @Test
+    fun `a transient failure is retried`() = runBlocking {
+        var calls = 0
+        val provider = object : TranslationProvider {
+            override val id = "flaky"
+            override val displayName = "Flaky"
+            override suspend fun translate(
+                texts: List<String>,
+                sourceLanguage: SourceScript,
+                target: TranslationLanguage,
+            ): List<String> {
+                calls++
+                throw TranslationFailure("timeout", transient = true)
+            }
+        }
+        val service = TranslationService(provider, maxRetries = 2)
+        service.translate(
+            regions = listOf(region(0, "hello there")),
+            script = SourceScript.KOREAN,
+            target = TranslationLanguage.VIETNAMESE,
+        )
+        assertEquals(3, calls, "a timeout is worth retrying")
+    }
+
+    @Test
     fun `regions with too few letters are skipped`() = runBlocking {
         val service = TranslationService(FakeProvider(), maxRetries = 0)
         val result = service.translate(
