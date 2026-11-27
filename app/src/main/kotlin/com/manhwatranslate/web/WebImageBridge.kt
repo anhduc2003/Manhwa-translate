@@ -79,10 +79,11 @@ class WebImageBridge(
         private const val MAX_CACHED_BYTES = 48L * 1024 * 1024
         /**
          * A page is decoded to at most this many pixels. The pipeline needs three page-sized
-         * buffers plus a bitmap, so twelve megapixels was already past what the heap allows on a
-         * phone once the WebView shares it; an oversized strip is sampled down instead.
+         * buffers plus a bitmap, so a single oversized page is processed alone (the pixel budget
+         * below keeps the rest of the chapter waiting); raising this keeps the site's original
+         * resolution on the strips a chapter is built from instead of sampling them down.
          */
-        private const val MAX_IMAGE_PIXELS = 8_000_000
+        private const val MAX_IMAGE_PIXELS = 12_000_000
 
         /**
          * Pages the pipeline works on at once. It holds three page-sized buffers per image, so
@@ -94,7 +95,7 @@ class WebImageBridge(
          * image means a 12 MP budget; a tall strip takes most of it and runs alone, a small
          * banner takes one unit and a dozen of them can run together.
          */
-        private const val PIXEL_BUDGET_MP = 8
+        private const val PIXEL_BUDGET_MP = 10
         private const val MAX_DOWNLOADS = 4
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 " +
@@ -521,7 +522,7 @@ class WebImageBridge(
         runCatching {
             val bitmap = imageStore.toBitmap(image)
             ByteArrayOutputStream().use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 98, out)
                 bitmap.recycle()
                 out.toByteArray()
             }

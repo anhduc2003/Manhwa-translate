@@ -18,9 +18,9 @@ object RegionGrouper {
 
     data class Options(
         /** Largest vertical gap between two blocks of the same bubble, as a share of their line height. */
-        val maxGapRatio: Float = 0.75f,
+        val maxGapRatio: Float = 0.9f,
         /** Share of the narrower block's width that must overlap horizontally. */
-        val minHorizontalOverlap: Float = 0.45f,
+        val minHorizontalOverlap: Float = 0.35f,
         /** Two blocks never join when the result would be taller than this many of their heights. */
         val maxHeightRatio: Float = 4.5f,
         /** Luminance spread of the band between two blocks still counted as quiet bubble paper. */
