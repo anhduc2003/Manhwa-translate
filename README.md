@@ -60,7 +60,7 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 ```
 
 `assembleDebug` tạo APK riêng cho từng kiến trúc CPU (`app-arm64-v8a-debug.apk` ~50 MB dùng cho
-hầu hết điện thoại) và một APK universal (~100 MB). CI trên GitHub cũng build và đính kèm APK.
+hầu hết điện thoại) và một APK universal (~128 MB). CI trên GitHub cũng build và đính kèm APK.
 
 ## Cài đặt
 
@@ -77,12 +77,13 @@ hầu hết điện thoại) và một APK universal (~100 MB). CI trên GitHub 
 `demo` xuất ảnh trước/sau khi xoá. Trên trang mẫu (bong bóng trắng, bong bóng đen, khung caption
 đen, chữ hiệu ứng trên nền gradient):
 
-| Vùng | Mực chữ trước | Mực chữ sau khi xoá | Nền sau khi xoá (độ lệch chuẩn) |
+| Vùng | Mực chữ trước | Mực chữ sau khi xoá | Ghi chú |
 | --- | --- | --- | --- |
-| Bong bóng thoại 1 | 11.8% | 0.0% | 0.5 |
-| Bong bóng thoại 2 | 13.7% | 0.0% | 0.0 |
-| Bong bóng nền đen (chữ sáng) | 11.2% | 0.0% | 0.0 |
-| Chữ hiệu ứng nền gradient | 14.0% | 0.0% | giữ gradient |
+| Bong bóng thoại 1 | 11.8% | 0.1% | nền trắng, lệch chuẩn 3.8 |
+| Bong bóng thoại 2 | 13.7% | 0.0% | nền trắng, lệch chuẩn 0.0 |
+| Khung caption nền đen (chữ sáng) | 7.4% | 0.0% | giữ đúng nền đen |
+| Bong bóng nền đen (chữ sáng) | 11.2% | 0.0% | giữ đúng nền đen |
+| Chữ hiệu ứng trên nền gradient | 14.0% | 0.0% | gradient + vạch nhiễu còn nguyên |
 
 ## Giới hạn đã biết
 
