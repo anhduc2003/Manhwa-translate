@@ -82,6 +82,22 @@ class TranslationServiceTest {
     }
 
     @Test
+    fun `a rejected batch falls back to the backup provider`() = runBlocking {
+        val primary = FakeProvider(failOn = "boom")
+        val backup = FakeProvider()
+        val service = TranslationService(primary, backup = backup, maxRetries = 0)
+        val result = service.translate(
+            regions = listOf(region(0, "boom here")),
+            script = SourceScript.KOREAN,
+            target = TranslationLanguage.VIETNAMESE,
+        )
+        val translated = result.translations.first()
+        assertEquals("vi:boom here", translated.translatedText)
+        assertEquals(TranslationStatus.DONE, translated.status)
+        assertTrue(result.warnings.any { it.contains("chuyển sang") })
+    }
+
+    @Test
     fun `regions with too few letters are skipped`() = runBlocking {
         val service = TranslationService(FakeProvider(), maxRetries = 0)
         val result = service.translate(

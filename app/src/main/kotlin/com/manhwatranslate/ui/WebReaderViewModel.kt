@@ -29,6 +29,7 @@ data class WebReaderUiState(
     val totalImages: Int = 0,
     val failedCount: Int = 0,
     val elapsedSeconds: Int = 0,
+    val timing: String = "",
     val message: String? = null,
     val clearSignal: Int = 0,
 )
@@ -77,16 +78,18 @@ class WebReaderViewModel(
                 )
             }
         },
-        onFinished = { summary, seconds ->
+        onFinished = { summary, seconds, warnings ->
             _state.update { current ->
                 val failed = current.failedCount
+                val base = if (failed > 0) {
+                    "Đã dịch ${current.translatedCount} ảnh trong ${seconds}s, $failed ảnh lỗi"
+                } else {
+                    "Đã dịch xong ${current.translatedCount} ảnh trong ${seconds}s"
+                }
                 current.copy(
                     elapsedSeconds = seconds,
-                    message = when {
-                        failed > 0 ->
-                            "Đã dịch ${current.translatedCount} ảnh trong ${seconds}s, $failed ảnh lỗi"
-                        else -> "Đã dịch xong ${current.translatedCount} ảnh trong ${seconds}s · $summary"
-                    },
+                    timing = summary,
+                    message = if (warnings.isBlank()) base else "$base — $warnings",
                 )
             }
         },
@@ -127,6 +130,7 @@ class WebReaderViewModel(
             totalImages = 0,
             failedCount = 0,
             elapsedSeconds = 0,
+            timing = "",
         )
     }
 
@@ -175,6 +179,7 @@ class WebReaderViewModel(
             totalImages = 0,
             failedCount = 0,
             elapsedSeconds = 0,
+            timing = "",
             translating = false,
             clearSignal = _state.value.clearSignal + 1,
         )

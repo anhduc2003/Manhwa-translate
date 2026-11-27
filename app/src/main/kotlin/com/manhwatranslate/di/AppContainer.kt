@@ -51,6 +51,9 @@ class AppContainer(context: Context) {
         measurer = measurer,
         compositor = compositor,
         providerResolver = { settings -> providerFor(settings) },
+        backupResolver = { settings ->
+            if (settings.provider == TranslationProviderType.ON_DEVICE) null else onDeviceTranslator
+        },
     )
 
     fun providerFor(settings: AppSettings): TranslationProvider = when (settings.provider) {

@@ -24,6 +24,7 @@ class TranslationEngine(
     private val measurer: AndroidTextMeasurer,
     private val compositor: PageCompositor,
     private val providerResolver: (AppSettings) -> TranslationProvider,
+    private val backupResolver: (AppSettings) -> TranslationProvider? = { null },
 ) {
 
     suspend fun processPage(
@@ -33,7 +34,10 @@ class TranslationEngine(
     ): PageProcessingResult {
         val pipeline = TranslationPipeline(
             recognizer = recognizerResolver(settings),
-            translationService = TranslationService(providerResolver(settings)),
+            translationService = TranslationService(
+                providerResolver(settings),
+                backup = backupResolver(settings),
+            ),
             measurer = measurer,
             compositor = compositor,
         )
@@ -52,7 +56,10 @@ class TranslationEngine(
     ): ArgbImage {
         val pipeline = TranslationPipeline(
             recognizer = recognizerResolver(settings),
-            translationService = TranslationService(providerResolver(settings)),
+            translationService = TranslationService(
+                providerResolver(settings),
+                backup = backupResolver(settings),
+            ),
             measurer = measurer,
             compositor = compositor,
         )

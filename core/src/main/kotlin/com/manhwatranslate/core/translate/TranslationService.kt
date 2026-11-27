@@ -17,9 +17,14 @@ data class TranslationBatchResult(
  * Batches region texts into provider calls, deduplicates repeated lines (webtoons repeat a
  * lot), retries a failed batch once, and degrades to the original text instead of failing the
  * whole page.
+ *
+ * A cloud backend can refuse a batch outright, whether on quota or because its own moderation
+ * dislikes the dialogue, so a [backup] provider (normally the on-device model) picks those
+ * batches up instead of leaving the page in the original language.
  */
 class TranslationService(
     private val provider: TranslationProvider,
+    private val backup: TranslationProvider? = null,
     private val maxRetries: Int = 1,
 ) {
 
@@ -111,6 +116,25 @@ class TranslationService(
                 if (error is kotlinx.coroutines.CancellationException) throw error
             }
             attempt++
+        }
+        val fallback = backup
+        if (fallback != null && fallback !== provider) {
+            val reason = lastError?.message ?: "lỗi không xác định"
+            val recovered = try {
+                fallback.translate(batch, script, target)
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                warnings += "${provider.displayName} và ${fallback.displayName} đều không dịch được " +
+                    "($reason)"
+                return batch
+            }
+            if (recovered.size == batch.size && recovered.any { it.isNotBlank() }) {
+                warnings += "${provider.displayName} không dịch được ($reason), " +
+                    "đã chuyển sang ${fallback.displayName}"
+                return recovered
+            }
+            warnings += "${fallback.displayName} trả về ${recovered.size}/${batch.size} dòng"
+            return batch
         }
         warnings += "Dịch thất bại (${provider.displayName}): ${lastError?.message ?: "lỗi không xác định"}"
         return batch

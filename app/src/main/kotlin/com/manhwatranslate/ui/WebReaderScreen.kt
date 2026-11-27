@@ -487,6 +487,8 @@ private fun subtitle(state: WebReaderUiState): String = when {
 
 private fun hint(state: WebReaderUiState, pageLoaded: Boolean): String = when {
     state.translating -> "Đang dịch ảnh trong trang, giữ màn hình mở"
+    state.totalImages > 0 && state.timing.isNotBlank() ->
+        "Đã dịch xong · ${state.timing}"
     state.totalImages > 0 -> "Đã dịch xong, vuốt để đọc bản dịch"
     pageLoaded -> "Bấm Dịch ảnh để dịch toàn bộ ảnh trong trang"
     else -> "Dán link truyện ở ô trên rồi bấm Mở"

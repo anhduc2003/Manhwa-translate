@@ -49,7 +49,8 @@ class WebImageBridge(
     private val onTranslated: (index: Int, token: String) -> Unit,
     private val onFailed: (index: Int, reason: String) -> Unit,
     private val onProgress: (done: Int, total: Int) -> Unit,
-    private val onFinished: (summary: String, seconds: Int) -> Unit = { _, _ -> },
+    private val onFinished: (summary: String, seconds: Int, warnings: String) -> Unit =
+        { _, _, _ -> },
 ) {
 
     companion object {
@@ -83,6 +84,7 @@ class WebImageBridge(
     private val countGate = Semaphore(MAX_PARALLEL)
     private val downloadGate = Semaphore(MAX_DOWNLOADS)
 
+    private val warnings = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private val startedAt = AtomicLong(0)
     private val detectNanos = AtomicLong(0)
     private val translateNanos = AtomicLong(0)
@@ -126,6 +128,7 @@ class WebImageBridge(
         startedAt.set(System.currentTimeMillis())
         detectNanos.set(0)
         translateNanos.set(0)
+        warnings.clear()
         pending.addAndGet(images.size)
         onProgress(completed.get(), pending.get())
         images.forEach(::queue)
@@ -147,6 +150,7 @@ class WebImageBridge(
                         }
                     }
                     clock.finish()
+                    result.warnings.forEach { warnings.add(it) }
                     detectNanos.addAndGet(clock.deviceNanos)
                     translateNanos.addAndGet(clock.translateNanos)
                     val token = "${image.index}-${System.currentTimeMillis()}.jpg"
@@ -164,7 +168,9 @@ class WebImageBridge(
             } finally {
                 val done = completed.incrementAndGet()
                 onProgress(done, pending.get())
-                if (done >= pending.get()) onFinished(summary(), elapsedSeconds())
+                if (done >= pending.get()) {
+                    onFinished(summary(), elapsedSeconds(), warnings.joinToString("; "))
+                }
             }
         }
     }

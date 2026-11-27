@@ -27,7 +27,7 @@ class MlKitTranslationProvider : TranslationProvider {
         sourceLanguage: SourceScript,
         target: TranslationLanguage,
     ): List<String> {
-        val sourceCode = mlkitSourceCode(sourceLanguage)
+        val sourceCode = sniffSource(texts, sourceLanguage)
         val targetCode = target.mlkitCode
         if (sourceCode == targetCode) return texts
         if (!target.mlkitSupported) {
@@ -63,6 +63,21 @@ class MlKitTranslationProvider : TranslationProvider {
                     .build(),
             )
         }
+
+    /**
+     * Auto mode has no idea what the page is written in, and treating every page as Korean
+     * garbles English lettering. The text itself says which model to use.
+     */
+    private fun sniffSource(texts: List<String>, script: SourceScript): String {
+        if (script != SourceScript.AUTO) return mlkitSourceCode(script)
+        val sample = texts.joinToString(" ")
+        return when {
+            sample.any { it in '\uAC00'..'\uD7A3' || it in '\u1100'..'\u11FF' } -> TranslateLanguage.KOREAN
+            sample.any { it in '\u3040'..'\u30FF' } -> TranslateLanguage.JAPANESE
+            sample.any { it in '\u4E00'..'\u9FFF' } -> TranslateLanguage.CHINESE
+            else -> TranslateLanguage.ENGLISH
+        }
+    }
 
     private fun mlkitSourceCode(script: SourceScript): String = when (script) {
         SourceScript.KOREAN -> TranslateLanguage.KOREAN
