@@ -78,8 +78,14 @@ class TranslationPipeline(
     private val mergerOptions: RegionMerger.Options = RegionMerger.Options(),
     private val grouperOptions: RegionGrouper.Options = RegionGrouper.Options(),
     private val splitterOptions: RegionSplitter.Options = RegionSplitter.Options(),
+    /**
+     * Reader used when [recognizer] throws. A self-hosted OCR server that is down or speaks a
+     * different protocol would otherwise turn every page into "no dialogue found".
+     */
+    private val backupRecognizer: TileRecognizer? = null,
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
+    private var activeRecognizer: TileRecognizer = recognizer
     private val aggressiveMaskOptions = TextMaskBuilder.Options(
         globalTolerance = 32f,
         inkAffinity = 1.25f,
@@ -230,10 +236,11 @@ class TranslationPipeline(
         }
 
         if (regions.isEmpty()) {
-            warnings += if (skipped.isEmpty()) {
-                "Không tìm thấy vùng chữ nào trên trang này"
-            } else {
-                "Chỉ tìm thấy hiệu ứng âm thanh trên trang này"
+            val recognizerFailed = warnings.any { it.startsWith("Nhận diện chữ thất bại") }
+            when {
+                recognizerFailed && skipped.isEmpty() -> Unit
+                skipped.isEmpty() -> warnings += "Không tìm thấy vùng chữ nào trên trang này"
+                else -> warnings += "Chỉ tìm thấy hiệu ứng âm thanh trên trang này"
             }
             onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
             return PageProcessingResult(
@@ -349,10 +356,11 @@ class TranslationPipeline(
         val prepared = prepare(page, detected, options, warnings)
 
         if (prepared.regions.isEmpty()) {
-            warnings += if (prepared.skipped.isEmpty()) {
-                "Không tìm thấy vùng chữ nào trên trang này"
-            } else {
-                "Chỉ tìm thấy hiệu ứng âm thanh, không có lời thoại để dịch"
+            val recognizerFailed = warnings.any { it.startsWith("Nhận diện chữ thất bại") }
+            when {
+                recognizerFailed && prepared.skipped.isEmpty() -> Unit
+                prepared.skipped.isEmpty() -> warnings += "Không tìm thấy vùng chữ nào trên trang này"
+                else -> warnings += "Chỉ tìm thấy hiệu ứng âm thanh, không có lời thoại để dịch"
             }
             onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
             return PageProcessingResult(
@@ -471,16 +479,20 @@ class TranslationPipeline(
         return com.manhwatranslate.core.geometry.RectI(left, top, left + newWidth, top + newHeight)
     }
 
-    private suspend fun detect(
+    /**
+     * Runs the recognizer over the page in tiles. A second pass with shorter tiles gives the
+     * recognizer more pixels per letter, which is what reads the small lettering a first pass
+     * misses; it only runs when the first pass found nothing at all.
+     */
+    private suspend fun scanTiles(
         page: ArgbImage,
+        tileHeight: Int,
         options: PipelineOptions,
         warnings: MutableList<String>,
         onProgress: (PipelineProgress) -> Unit,
-        coreTop: Int = 0,
-        coreBottom: Int = Int.MAX_VALUE,
-        pageOffsetY: Int = 0,
+        pageOffsetY: Int,
     ): List<TextRegion> {
-        val tiles = ImageTiler.split(page, options.maxTileHeight, options.tileOverlap)
+        val tiles = ImageTiler.split(page, tileHeight, options.tileOverlap)
         val raw = ArrayList<TextRegion>()
         tiles.forEachIndexed { index, tile ->
             onProgress(
@@ -491,18 +503,69 @@ class TranslationPipeline(
                 ),
             )
             if (isFlat(tile.image)) return@forEachIndexed
-            try {
-                val turned = if (pageOffsetY == 0) {
-                    tile
-                } else {
-                    ImageTile(tile.index, tile.rect.translated(0, pageOffsetY), tile.image)
-                }
-                val found = recognizer.recognize(turned, options.script)
-                raw += if (pageOffsetY == 0) found else found.map { it.translated(0, -pageOffsetY) }
+            val turned = if (pageOffsetY == 0) {
+                tile
+            } else {
+                ImageTile(tile.index, tile.rect.translated(0, pageOffsetY), tile.image)
+            }
+            val found = try {
+                activeRecognizer.recognize(turned, options.script)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                warnings += "Nhận diện chữ thất bại ở khối ${index + 1}: ${error.message ?: error.javaClass.simpleName}"
+                retryWithBackup(error, turned, options.script, warnings, index)
             }
+            raw += if (pageOffsetY == 0) found else found.map { it.translated(0, -pageOffsetY) }
+        }
+        return raw
+    }
+
+    private suspend fun retryWithBackup(
+        error: Throwable,
+        tile: ImageTile,
+        script: SourceScript,
+        warnings: MutableList<String>,
+        index: Int,
+    ): List<TextRegion> {
+        val reason = error.message ?: error.javaClass.simpleName
+        val backup = backupRecognizer
+        if (backup == null || activeRecognizer === backup) {
+            warnings += "Nhận diện chữ thất bại ở khối ${index + 1}: $reason"
+            return emptyList()
+        }
+        activeRecognizer = backup
+        warnings += "Máy đọc chữ bên ngoài lỗi ($reason), đã chuyển sang đọc chữ trên máy"
+        return try {
+            backup.recognize(tile, script)
+        } catch (fallbackError: Throwable) {
+            if (fallbackError is CancellationException) throw fallbackError
+            warnings += "Nhận diện chữ thất bại ở khối ${index + 1}: " +
+                (fallbackError.message ?: fallbackError.javaClass.simpleName)
+            emptyList()
+        }
+    }
+
+    private suspend fun detect(
+        page: ArgbImage,
+        options: PipelineOptions,
+        warnings: MutableList<String>,
+        onProgress: (PipelineProgress) -> Unit,
+        coreTop: Int = 0,
+        coreBottom: Int = Int.MAX_VALUE,
+        pageOffsetY: Int = 0,
+    ): List<TextRegion> {
+        var raw = scanTiles(page, options.maxTileHeight, options, warnings, onProgress, pageOffsetY)
+        if (raw.isEmpty() && options.maxTileHeight > MIN_RETRY_TILE_HEIGHT) {
+            onProgress(
+                PipelineProgress.of(PipelineStage.DETECTING, 0.3f, "Thử lại với khung nhỏ hơn"),
+            )
+            raw = scanTiles(
+                page = page,
+                tileHeight = maxOf(MIN_RETRY_TILE_HEIGHT, options.maxTileHeight / 2),
+                options = options,
+                warnings = warnings,
+                onProgress = onProgress,
+                pageOffsetY = pageOffsetY,
+            )
         }
         val refined = RegionMerger.refine(raw, mergerOptions)
         val grouped = RegionSplitter.split(page, RegionGrouper.group(page, refined, grouperOptions), splitterOptions)
@@ -529,6 +592,9 @@ class TranslationPipeline(
     private companion object {
         /** Luminance spread under which a tile holds one flat colour rather than artwork. */
         const val FLAT_SHADE_SPAN = 20
+
+        /** Shortest tile the retry pass may use, so the recognizer always gains resolution. */
+        const val MIN_RETRY_TILE_HEIGHT = 400
     }
 
     private fun isFlat(image: ArgbImage): Boolean {

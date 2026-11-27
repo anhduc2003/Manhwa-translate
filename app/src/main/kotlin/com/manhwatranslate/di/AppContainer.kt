@@ -50,6 +50,7 @@ class AppContainer(context: Context) {
         recognizerResolver = { settings -> recognizerFor(settings) },
         measurer = measurer,
         compositor = compositor,
+        backupRecognizer = mlKitRecognizer,
         providerResolver = { settings -> providerFor(settings) },
         backupResolver = { settings ->
             if (settings.provider == TranslationProviderType.ON_DEVICE) null else onDeviceTranslator

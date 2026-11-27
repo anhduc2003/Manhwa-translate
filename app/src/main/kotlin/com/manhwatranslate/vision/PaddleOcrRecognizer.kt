@@ -30,6 +30,13 @@ class PaddleOcrRecognizer(
 
     override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
         if (serverUrl.isBlank()) throw TranslationException("Chưa nhập địa chỉ server PaddleOCR")
+        if (serverUrl.contains("/api/v2/ocr/jobs", ignoreCase = true)) {
+            throw TranslationException(
+                "Địa chỉ này là API job của PaddleOCR (tạo job rồi chờ kết quả), " +
+                    "app chưa đọc được định dạng đó. Hãy nhập server Hub Serving " +
+                    "(.../predict/ocr_system) hoặc chọn ML Kit.",
+            )
+        }
         val payload = withContext(Dispatchers.Default) { encode(tile.image.toBitmap()) }
         val response = HttpJson.postRaw(
             url = endpoint(),

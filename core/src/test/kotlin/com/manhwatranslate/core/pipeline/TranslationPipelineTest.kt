@@ -213,6 +213,116 @@ class TranslationPipelineTest {
     }
 
     @Test
+    fun `a broken recognizer falls back to the backup`() {
+        val page = ArgbImage.filled(600, 600, Colors.opaque(250, 250, 250))
+        val box = RectI(120, 100, 320, 120)
+        for (y in box.top until box.bottom) {
+            for (x in box.left until box.right) page.set(x, y, Colors.opaque(20, 20, 20))
+        }
+        val broken = object : TileRecognizer {
+            override suspend fun recognize(
+                tile: ImageTile,
+                script: SourceScript,
+            ): List<TextRegion> = throw IllegalStateException("Lỗi dịch HTTP 404")
+        }
+        val working = object : TileRecognizer {
+            override suspend fun recognize(
+                tile: ImageTile,
+                script: SourceScript,
+            ): List<TextRegion> = listOf(
+                TextRegion(
+                    id = 0,
+                    box = box,
+                    lines = listOf(TextLine(box, "HELLO THERE MY FRIEND")),
+                    text = "HELLO THERE MY FRIEND",
+                ),
+            )
+        }
+        val pipeline = TranslationPipeline(
+            recognizer = broken,
+            translationService = TranslationService(
+                object : TranslationProvider {
+                    override val id = "test"
+                    override val displayName = "Test"
+                    override suspend fun translate(
+                        texts: List<String>,
+                        sourceLanguage: SourceScript,
+                        target: TranslationLanguage,
+                    ): List<String> = texts.map { "DONG $it" }
+                },
+            ),
+            measurer = FakeMonospaceMeasurer(),
+            compositor = object : PageCompositor {
+                override fun compose(page: ArgbImage, items: List<RenderItem>): ArgbImage = page
+            },
+            backupRecognizer = working,
+        )
+        val result = runBlocking {
+            pipeline.process(page, PipelineOptions(script = SourceScript.LATIN, maxTileHeight = 1800))
+        }
+        assertEquals(
+            1,
+            result.regions.size,
+            "backup failed: warnings=${result.warnings} skipped=${result.skipped.size}",
+        )
+        assertTrue(result.warnings.any { it.contains("chuyển sang đọc chữ trên máy") })
+    }
+
+    @Test
+    fun `a page the first pass misses is scanned again with smaller tiles`() {
+        val page = ArgbImage.filled(600, 2000, Colors.opaque(250, 250, 250))
+        val band = RectI(120, 100, 320, 120)
+        for (y in band.top until band.bottom) {
+            for (x in band.left until band.right) page.set(x, y, Colors.opaque(20, 20, 20))
+        }
+        val pipeline = TranslationPipeline(
+            recognizer = object : TileRecognizer {
+                override suspend fun recognize(
+                    tile: ImageTile,
+                    script: SourceScript,
+                ): List<TextRegion> = if (tile.image.height in 700..1000) {
+                    listOf(
+                        TextRegion(
+                            id = 0,
+                            box = band,
+                            lines = listOf(TextLine(band, "SMALL PRINT")),
+                            text = "SMALL PRINT",
+                        ),
+                    )
+                } else {
+                    emptyList()
+                }
+            },
+            translationService = TranslationService(
+                object : TranslationProvider {
+                    override val id = "test"
+                    override val displayName = "Test"
+                    override suspend fun translate(
+                        texts: List<String>,
+                        sourceLanguage: SourceScript,
+                        target: TranslationLanguage,
+                    ): List<String> = texts.map { "DONG $it" }
+                },
+            ),
+            measurer = FakeMonospaceMeasurer(),
+            compositor = object : PageCompositor {
+                override fun compose(page: ArgbImage, items: List<RenderItem>): ArgbImage = page
+            },
+        )
+        val result = runBlocking {
+            pipeline.process(
+                page,
+                PipelineOptions(script = SourceScript.LATIN, maxTileHeight = 1800),
+            )
+        }
+        assertEquals(
+            1,
+            result.regions.size,
+            "retry should find it; warnings=${result.warnings} skipped=${result.skipped.size}",
+        )
+    }
+
+    @Test
     fun `a flat tile is not sent to the recognizer`() {
         val seen = ArrayList<Int>()
         val pipeline = TranslationPipeline(

@@ -25,6 +25,7 @@ class TranslationEngine(
     private val compositor: PageCompositor,
     private val providerResolver: (AppSettings) -> TranslationProvider,
     private val backupResolver: (AppSettings) -> TranslationProvider? = { null },
+    private val backupRecognizer: TileRecognizer? = null,
 ) {
 
     suspend fun processPage(
@@ -40,6 +41,7 @@ class TranslationEngine(
             ),
             measurer = measurer,
             compositor = compositor,
+            backupRecognizer = backupRecognizer,
         )
         val options = settings.toPipelineOptions().copy(
             maxTileHeight = tileHeightFor(page),
@@ -62,6 +64,7 @@ class TranslationEngine(
             ),
             measurer = measurer,
             compositor = compositor,
+            backupRecognizer = backupRecognizer,
         )
         return pipeline.recompose(cleaned, regions, translations, options)
     }

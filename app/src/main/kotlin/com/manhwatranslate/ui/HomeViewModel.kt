@@ -183,7 +183,11 @@ class HomeViewModel(
     ): String {
         val failed = translations.count { it.status == com.manhwatranslate.core.model.TranslationStatus.FAILED }
         val suffix = if (skippedCount > 0) " · bỏ qua $skippedCount vùng SFX" else ""
+        val recognizerFailure = warnings.firstOrNull {
+            it.startsWith("Nhận diện chữ thất bại") || it.startsWith("Máy đọc chữ bên ngoài lỗi")
+        }
         return when {
+            regionCount == 0 && recognizerFailure != null -> recognizerFailure
             regionCount == 0 -> "Không tìm thấy lời thoại trên ảnh$suffix"
             failed > 0 -> "Đã dịch $regionCount vùng, $failed vùng giữ nguyên do lỗi dịch$suffix"
             warnings.isNotEmpty() && warnings.first().startsWith("Bỏ qua") -> "Đã dịch $regionCount vùng$suffix"
