@@ -1,0 +1,11 @@
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_vision_text** { *; }
+-dontwarn com.google.mlkit.**
+-keepattributes *Annotation*
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class com.manhwatranslate.**$$serializer { *; }
+-keepclassmembers class com.manhwatranslate.** { *** Companion; }
+-keepclasseswithmembers class com.manhwatranslate.** { kotlinx.serialization.KSerializer serializer(...); }
+-dontwarn okhttp3.**
+-dontwarn okio.**
