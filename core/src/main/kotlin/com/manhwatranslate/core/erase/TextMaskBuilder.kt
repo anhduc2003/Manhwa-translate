@@ -14,6 +14,8 @@ import com.manhwatranslate.core.model.TextRegion
  * lettering when it is far from the surface *and* closer to the letter colour than to the paper,
  * which keeps artwork of a different colour inside the box from being erased.
  */
+private const val QUIET_PAPER_TEXTURE = 6f
+
 class TextMaskBuilder(
     val options: Options = Options(),
 ) {
@@ -31,7 +33,11 @@ class TextMaskBuilder(
         val fitSurface: Boolean = true,
     )
 
-    fun build(image: ArgbImage, region: TextRegion): TextMask? {
+    fun build(
+        image: ArgbImage,
+        region: TextRegion,
+        options: Options = this.options,
+    ): TextMask? {
         val bounds = region.box.expanded(options.padding).clamped(image.width, image.height) ?: return null
         val context = region.box.expanded(options.contextPadding).clamped(image.width, image.height) ?: bounds
         val crop = image.crop(bounds)
@@ -58,6 +64,7 @@ class TextMaskBuilder(
         }
 
         val localMeans = localMeanLuminance(pixels, width, height)
+        val quietPaper = paperTexture(pixels, samples, width, height) < QUIET_PAPER_TEXTURE
         val mask = ByteArray(width * height)
         var marked = 0
 
@@ -69,6 +76,11 @@ class TextMaskBuilder(
                 val pixel = pixels[index]
                 val background = backgroundAt(x, y)
                 val backgroundDistance = Colors.distance(pixel, background)
+                if (quietPaper && backgroundDistance > options.globalTolerance * 1.5f) {
+                    mask[index] = 1
+                    marked++
+                    continue
+                }
                 if (backgroundDistance <= options.globalTolerance) {
                     val localContrast = kotlin.math.abs(Colors.luminance(pixel) - localMeans[index])
                     if (localContrast > options.localTolerance * 1.6f && backgroundDistance > 14f) {

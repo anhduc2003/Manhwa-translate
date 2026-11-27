@@ -160,6 +160,10 @@ fun SettingsScreen(
                         settings = settings,
                         hasKey = settings.provider in state.configuredKeys,
                         currentKey = viewModel.apiKey(settings.provider),
+                        onTest = { key ->
+                            viewModel.saveApiKey(settings.provider, key)
+                            viewModel.testApiKey()
+                        },
                         onSave = { key -> viewModel.saveApiKey(settings.provider, key) },
                         onUpdate = viewModel::update,
                     )
@@ -410,6 +414,7 @@ private fun ApiKeyCard(
     hasKey: Boolean,
     currentKey: String,
     onSave: (String) -> Unit,
+    onTest: (String) -> Unit,
     onUpdate: ((com.manhwatranslate.data.AppSettings) -> com.manhwatranslate.data.AppSettings) -> Unit,
 ) {
     var key by remember(settings.provider, currentKey) { mutableStateOf(currentKey) }
@@ -496,6 +501,12 @@ private fun ApiKeyCard(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { onSave(key) }, modifier = Modifier.weight(1f)) {
                 Text("Lưu key")
+            }
+            androidx.compose.material3.OutlinedButton(
+                onClick = { onTest(key) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Kiểm tra")
             }
             if (hasKey) {
                 androidx.compose.material3.OutlinedButton(

@@ -59,7 +59,8 @@ internal object HttpJson {
             } ?: element["message"]?.toString()?.trim('"')
         }.getOrNull()
         return when (code) {
-            401, 403 -> "API key không hợp lệ hoặc không đủ quyền (HTTP $code)"
+            401, 403 -> "API key không hợp lệ hoặc không đủ quyền (HTTP $code)" +
+                (if (detail.isNullOrBlank()) "" else ": $detail")
             429 -> "Đã vượt hạn mức gọi API, thử lại sau ít phút (HTTP 429)"
             in 500..599 -> "Máy chủ dịch đang lỗi (HTTP $code)"
             else -> "Lỗi dịch HTTP $code${if (detail.isNullOrBlank()) "" else ": $detail"}"

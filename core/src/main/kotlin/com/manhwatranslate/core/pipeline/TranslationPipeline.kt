@@ -77,6 +77,12 @@ class TranslationPipeline(
     private val grouperOptions: RegionGrouper.Options = RegionGrouper.Options(),
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
+    private val aggressiveMaskOptions = TextMaskBuilder.Options(
+        globalTolerance = 32f,
+        inkAffinity = 1.25f,
+        closingRadius = 3,
+        dilation = 4,
+    )
 
     private data class PreparedPage(
         val regions: List<TextRegion>,
@@ -467,9 +473,37 @@ class TranslationPipeline(
             }
             val updated = region.copy(font = font)
             measured += updated
-            if (mask != null) eraser.erase(working, mask)
+            if (mask != null) {
+                eraser.erase(working, mask)
+                if (residualInkRatio(working, mask) > 0.06f) {
+                    val retry = maskBuilder.build(page, region, aggressiveMaskOptions)
+                    if (retry != null) eraser.erase(working, retry)
+                }
+            }
         }
         return PreparedPage(measured, skipped, working)
+    }
+
+    /**
+     * Share of the box still standing out from the reconstructed paper after the fill. A box that
+     * is mostly clear reads as erased; a high share means the mask missed part of the lettering,
+     * so it is built again with a looser tolerance and a wider dilation.
+     */
+    private fun residualInkRatio(image: ArgbImage, mask: TextMask): Float {
+        val surface = mask.surface ?: return 0f
+        var total = 0
+        var leftover = 0
+        for (y in 0 until mask.height) {
+            for (x in 0 until mask.width) {
+                val pixel = image.get(mask.left + x, mask.top + y)
+                val paper = surface.argbAt(x, y)
+                total++
+                val paperDistance = Colors.distance(pixel, paper)
+                if (paperDistance > 70f && Colors.distance(pixel, mask.inkArgb) < paperDistance) leftover++
+            }
+        }
+        if (total == 0) return 0f
+        return leftover.toFloat() / total.toFloat()
     }
 
     private fun estimateFont(region: TextRegion, mask: TextMask, options: PipelineOptions): FontSpec {

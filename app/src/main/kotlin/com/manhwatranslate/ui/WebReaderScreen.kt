@@ -1,6 +1,7 @@
 package com.manhwatranslate.ui
 
 import android.annotation.SuppressLint
+import android.content.ClipboardManager
 import android.graphics.Bitmap
 import android.os.Message
 import android.view.ViewGroup
@@ -32,7 +33,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -84,7 +85,6 @@ fun WebReaderScreen(
     val focus = LocalFocusManager.current
     var webView by remember { mutableStateOf<WebView?>(null) }
     var addressBar by rememberSaveable { mutableStateOf("") }
-    var showAddressField by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         viewModel.onApplyImage = { index, url ->
@@ -128,9 +128,6 @@ fun WebReaderScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showAddressField = !showAddressField }) {
-                        Icon(Icons.Outlined.Language, contentDescription = "Địa chỉ")
-                    }
                     IconButton(onClick = { webView?.reload() }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Tải lại")
                     }
@@ -223,8 +220,7 @@ fun WebReaderScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (showAddressField) {
-                OutlinedTextField(
+            OutlinedTextField(
                     value = addressBar,
                     onValueChange = { addressBar = it },
                     modifier = Modifier
@@ -243,17 +239,26 @@ fun WebReaderScreen(
                         }
                     }),
                     trailingIcon = {
-                        TextButton(onClick = {
-                            val url = normalizeUrl(addressBar)
-                            if (url != null) {
-                                addressBar = url
+                        IconButton(onClick = {
+                            val clip = context.getSystemService(ClipboardManager::class.java)
+                            val pasted = clip?.primaryClip
+                                ?.takeIf { it.itemCount > 0 }
+                                ?.getItemAt(0)
+                                ?.coerceToText(context)
+                                ?.toString()
+                                ?.trim()
+                            if (!pasted.isNullOrBlank()) {
+                                addressBar = pasted
+                                webView?.loadUrl(normalizeUrl(pasted) ?: pasted)
                                 focus.clearFocus()
-                                webView?.loadUrl(url)
+                            } else {
+                                viewModel.showMessage("Bộ nhớ tạm không có link nào")
                             }
-                        }) { Text("Đi") }
+                        }) {
+                            Icon(Icons.Outlined.ContentPaste, contentDescription = "Dán link")
+                        }
                     },
                 )
-            }
             if (state.loading) {
                 LinearProgressIndicator(
                     progress = { state.progress / 100f },
@@ -262,7 +267,9 @@ fun WebReaderScreen(
                         .height(3.dp),
                 )
             }
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier
+                .fillMaxWidth()
+                .weight(1f)) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->

@@ -107,6 +107,10 @@ class WebReaderViewModel(
         )
     }
 
+    fun showMessage(text: String) {
+        _state.value = _state.value.copy(message = text)
+    }
+
     fun consumeMessage() {
         _state.value = _state.value.copy(message = null)
     }

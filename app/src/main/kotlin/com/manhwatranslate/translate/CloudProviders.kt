@@ -71,7 +71,8 @@ class DeepLTranslationProvider(
         target: TranslationLanguage,
     ): List<String> {
         if (apiKey.isBlank()) throw TranslationException("Chưa nhập API key cho DeepL")
-        val host = if (pro) "https://api.deepl.com" else "https://api-free.deepl.com"
+        val freeKey = apiKey.trim().endsWith(":fx")
+        val host = if (pro && !freeKey) "https://api.deepl.com" else "https://api-free.deepl.com"
         val payload = buildJsonObject {
             put("text", buildJsonArray { texts.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
             put("target_lang", deeplCode(target))

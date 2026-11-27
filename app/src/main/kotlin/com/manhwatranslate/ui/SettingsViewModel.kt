@@ -49,6 +49,33 @@ class SettingsViewModel(
 
     fun apiKey(provider: TranslationProviderType): String = container.secretsStore.apiKey(provider)
 
+    /**
+     * Sends one short sentence through whatever provider is selected so a bad key, a wrong
+     * endpoint or a mismatch between key and provider shows up as the server's own message
+     * instead of a failed page.
+     */
+    fun testApiKey() {
+        val settings = _state.value.settings
+        viewModelScope.launch {
+            _state.value = _state.value.copy(message = "Đang kiểm tra khoá…")
+            val outcome = runCatching {
+                container.providerFor(settings).translate(
+                    texts = listOf("Good morning"),
+                    sourceLanguage = com.manhwatranslate.core.model.SourceScript.LATIN,
+                    target = com.manhwatranslate.core.model.TranslationLanguage.VIETNAMESE,
+                )
+            }
+            _state.value = _state.value.copy(
+                message = outcome.fold(
+                    onSuccess = { lines ->
+                        "Khoá hoạt động: \"Good morning\" → \"${lines.firstOrNull().orEmpty()}\""
+                    },
+                    onFailure = { error -> error.message ?: error.javaClass.simpleName },
+                ),
+            )
+        }
+    }
+
     fun importFont(uri: Uri) {
         viewModelScope.launch {
             runCatching { container.fontStore.import(uri) }
