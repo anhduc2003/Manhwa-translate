@@ -93,6 +93,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +111,7 @@ import com.manhwatranslate.ui.components.SectionTitle
 import com.manhwatranslate.ui.components.ToggleRow
 import com.manhwatranslate.web.AdBlocker
 import com.manhwatranslate.web.PageImage
+import com.manhwatranslate.web.ReaderStyle
 import com.manhwatranslate.web.WebImageBridge
 import java.io.ByteArrayInputStream
 import org.json.JSONArray
@@ -132,6 +134,7 @@ fun WebReaderScreen(
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
+    val darkPage = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val blocker = viewModel.adBlocker
     var webView by remember { mutableStateOf<WebView?>(null) }
     var addressBar by rememberSaveable { mutableStateOf("") }
@@ -162,6 +165,12 @@ fun WebReaderScreen(
             )
             if (result == SnackbarResult.ActionPerformed) detailsOpen = true
             viewModel.consumeMessage()
+        }
+    }
+
+    LaunchedEffect(darkPage, state.readerMode) {
+        webView?.let { view ->
+            injectReaderScripts(view, view.url.orEmpty(), viewModel, blocker, darkPage)
         }
     }
 
@@ -224,7 +233,7 @@ fun WebReaderScreen(
                     viewModel.translatePageImages(parseScannedImages(raw), view.url.orEmpty())
                 }
             } else {
-                injectReaderScripts(view, view.url.orEmpty(), viewModel, blocker)
+                injectReaderScripts(view, view.url.orEmpty(), viewModel, blocker, darkPage)
                 view.postDelayed({
                     view.evaluateJavascript("window.__mtScan ? window.__mtScan() : '[]'") { raw ->
                         viewModel.translatePageImages(parseScannedImages(raw), view.url.orEmpty())
@@ -411,7 +420,7 @@ fun WebReaderScreen(
                         settings.loadsImagesAutomatically = true
                         settings.blockNetworkImage = false
                         settings.userAgentString = userAgentFor(viewModel.state.value.desktopMode)
-                        setBackgroundColor(0xFFFFFFFF.toInt())
+                        setBackgroundColor(pageBackground(darkPage))
 
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -448,7 +457,7 @@ fun WebReaderScreen(
                                 pageLoaded = true
                                 viewModel.onLoadFinished()
                                 viewModel.onPageUrl(url.orEmpty())
-                                injectReaderScripts(view, url.orEmpty(), viewModel, blocker)
+                                injectReaderScripts(view, url.orEmpty(), viewModel, blocker, darkPage)
                             }
 
                             override fun shouldOverrideUrlLoading(
@@ -466,7 +475,10 @@ fun WebReaderScreen(
                         webView = this
                     }
                 },
-                update = { webView = it },
+                update = { view ->
+                    webView = view
+                    view.setBackgroundColor(pageBackground(darkPage))
+                },
             )
             AnimatedVisibility(
                 visible = !pageLoaded && !state.loading,
@@ -688,7 +700,7 @@ private fun WebSettingsSheet(
             RowDivider()
             ToggleRow(
                 title = "Chế độ đọc",
-                subtitle = "Ảnh vừa khung, ẩn thanh bên",
+                subtitle = "Ảnh vừa khung, nền và chữ theo ứng dụng",
                 checked = state.readerMode,
                 onCheckedChange = onToggleReader,
             )
@@ -765,11 +777,14 @@ private fun KeepScreenOn(enabled: Boolean) {
     }
 }
 
+private fun pageBackground(dark: Boolean): Int = if (dark) 0xFF0D0A0D.toInt() else 0xFFFAF6F3.toInt()
+
 private fun injectReaderScripts(
     view: WebView,
     url: String,
     viewModel: WebReaderViewModel,
     blocker: AdBlocker,
+    dark: Boolean,
 ) {
     val state = viewModel.state.value
     view.evaluateJavascript(blocker.imageBridgeScript, null)
@@ -784,12 +799,18 @@ private fun injectReaderScripts(
         view.evaluateJavascript(blocker.pageScript, null)
     }
     if (state.readerMode) {
+        val readerCss = JSONObject.quote(ReaderStyle.css(dark))
         view.evaluateJavascript(
             "(function(){var s=document.getElementById('mt-reader');" +
                 "if(!s){s=document.createElement('style');s.id='mt-reader';" +
                 "document.documentElement.appendChild(s);}" +
-                "s.textContent='img,canvas{max-width:100%!important;height:auto!important;}'+" +
-                "'body{overflow-x:hidden!important;}';})()",
+                "s.textContent=$readerCss;})()",
+            null,
+        )
+    } else {
+        view.evaluateJavascript(
+            "(function(){var s=document.getElementById('mt-reader');" +
+                "if(s){s.remove();}})()",
             null,
         )
     }
