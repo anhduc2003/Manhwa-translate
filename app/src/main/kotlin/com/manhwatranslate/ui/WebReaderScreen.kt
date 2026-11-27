@@ -386,7 +386,7 @@ fun WebReaderScreen(
                                     return if (body == null) {
                                         emptyResponse()
                                     } else {
-                                        WebResourceResponse("image/png", null, ByteArrayInputStream(body))
+                                        WebResourceResponse("image/jpeg", null, ByteArrayInputStream(body))
                                     }
                                 }
                                 val current = viewModel.state.value
@@ -478,6 +478,8 @@ fun WebReaderScreen(
 
 private fun subtitle(state: WebReaderUiState): String = when {
     state.translating -> "Đang dịch ${state.translatedCount}/${state.totalImages} ảnh"
+    state.totalImages > 0 && state.elapsedSeconds > 0 ->
+        "Đã dịch ${state.translatedCount} ảnh · ${state.elapsedSeconds}s"
     state.totalImages > 0 -> "Đã dịch ${state.translatedCount} ảnh"
     state.adBlockEnabled -> "Chặn quảng cáo: bật"
     else -> "Chặn quảng cáo: tắt"

@@ -5,6 +5,7 @@ import com.manhwatranslate.core.erase.EraseOptions
 import com.manhwatranslate.core.erase.TextEraser
 import com.manhwatranslate.core.erase.TextMask
 import com.manhwatranslate.core.erase.TextMaskBuilder
+import com.manhwatranslate.core.geometry.RectI
 import com.manhwatranslate.core.image.ArgbImage
 import com.manhwatranslate.core.image.Colors
 import com.manhwatranslate.core.layout.FontEstimator
@@ -166,6 +167,24 @@ class TranslationPipeline(
         return bestRow.coerceIn(1, page.height - 1)
     }
 
+    /**
+     * One band's work, kept in the slice's own coordinates so the render can paste straight back
+     * onto the page. [regions] carry page-wide ids so the single translation call can address
+     * every band's regions at once.
+     */
+    private data class BandWork(
+        val band: IntRange,
+        val contextTop: Int,
+        val contextBottom: Int,
+        val regions: List<TextRegion>,
+        val skipped: List<TextRegion>,
+    )
+
+    /**
+     * Detects and erases band by band, then translates the whole page in one call and renders the
+     * bands back. Translating per band would cost one backend round trip per band on a long
+     * webtoon strip, which dominates the page's time when the translation runs on a cloud API.
+     */
     private suspend fun processBands(
         page: ArgbImage,
         bands: List<IntRange>,
@@ -176,9 +195,10 @@ class TranslationPipeline(
         val cleaned = ArgbImage(page.width, page.height, IntArray(page.width * page.height))
         val rendered = ArgbImage(page.width, page.height, IntArray(page.width * page.height))
         val regions = ArrayList<TextRegion>()
-        val translations = ArrayList<RegionTranslation>()
         val skipped = ArrayList<TextRegion>()
         val warnings = ArrayList<String>()
+        val works = ArrayList<BandWork>()
+        var nextId = 0
 
         bands.forEachIndexed { index, band ->
             val base = index.toFloat() / bands.size
@@ -186,41 +206,95 @@ class TranslationPipeline(
             val margin = options.bandMarginPx.coerceAtLeast(0)
             val contextTop = (band.first - margin).coerceAtLeast(0)
             val contextBottom = (band.last + 1 + margin).coerceAtMost(page.height)
-            val result = processBand(
-                page = page,
-                bandTop = band.first,
-                bandBottom = band.last + 1,
-                contextTop = contextTop,
-                contextBottom = contextBottom,
-                options = options,
-                onProgress = onProgress,
-                progressBase = base,
-                progressSpan = span,
-            )
             val coreTop = band.first - contextTop
             val coreBottom = band.last + 1 - contextTop
-            val coreBox = com.manhwatranslate.core.geometry.RectI(0, coreTop, page.width, coreBottom)
-            cleaned.blit(result.cleanedImage.crop(coreBox), 0, band.first)
-            rendered.blit(result.image.crop(coreBox), 0, band.first)
-            val offset = contextTop
-            val idOffset = regions.size
-            regions += result.regions.map { region ->
-                region.copy(id = region.id + idOffset, box = region.box.translated(0, offset), lines = region.lines.map { it.copy(box = it.box.translated(0, offset)) })
+            val slice = page.crop(RectI(0, contextTop, page.width, contextBottom))
+            val scoped: (PipelineProgress) -> Unit = { progress ->
+                onProgress(
+                    PipelineProgress(
+                        stage = progress.stage,
+                        fraction = base + progress.fraction * span,
+                        message = progress.message,
+                    ),
+                )
             }
-            translations += result.translations.map { it.copy(regionId = it.regionId + idOffset) }
-            skipped += result.skipped.map { it.copy(box = it.box.translated(0, offset)) }
-            warnings += result.warnings
+            scoped(PipelineProgress.of(PipelineStage.PREPARING, 0.02f, "Chuẩn bị trang"))
+            val detected = detect(slice, options, warnings, scoped, coreTop, coreBottom, contextTop)
+            scoped(PipelineProgress.of(PipelineStage.ERASING, 0.5f, "Xoá chữ gốc"))
+            val prepared = prepare(slice, detected, options, warnings)
+            cleaned.blit(prepared.cleaned.crop(RectI(0, coreTop, page.width, coreBottom)), 0, band.first)
+            val numbered = prepared.regions.map { it.copy(id = nextId++) }
+            works += BandWork(band, contextTop, contextBottom, numbered, prepared.skipped)
+            regions += numbered.map { it.translated(0, contextTop) }
+            skipped += prepared.skipped.map { it.translated(0, contextTop) }
         }
 
-        if (regions.isEmpty() && warnings.none { it.contains("Không tìm thấy") }) {
-            warnings += "Không tìm thấy vùng chữ nào trên trang này"
+        if (regions.isEmpty()) {
+            warnings += if (skipped.isEmpty()) {
+                "Không tìm thấy vùng chữ nào trên trang này"
+            } else {
+                "Chỉ tìm thấy hiệu ứng âm thanh trên trang này"
+            }
+            onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
+            return PageProcessingResult(
+                image = cleaned,
+                cleanedImage = cleaned,
+                regions = emptyList(),
+                translations = emptyList(),
+                skipped = skipped,
+                warnings = warnings.distinct(),
+                elapsedMillis = System.currentTimeMillis() - started,
+            )
         }
+
+        onProgress(
+            PipelineProgress.of(
+                PipelineStage.TRANSLATING,
+                0.62f,
+                "Đang dịch ${regions.size} vùng chữ",
+            ),
+        )
+        val batch = translationService.translate(
+            regions = regions,
+            script = options.script,
+            target = options.target,
+            minLetterCount = options.minLetterCount,
+            onProgress = { fraction ->
+                onProgress(
+                    PipelineProgress.of(
+                        PipelineStage.TRANSLATING,
+                        0.62f + 0.18f * fraction,
+                        "Đang dịch ${regions.size} vùng chữ",
+                    ),
+                )
+            },
+        )
+        warnings += batch.warnings
+        val byId = batch.translations.associateBy { it.regionId }
+
+        onProgress(PipelineProgress.of(PipelineStage.RENDERING, 0.84f, "Vẽ bản dịch"))
+        var drawn = 0
+        for (work in works) {
+            val coreTop = work.band.first - work.contextTop
+            val coreBottom = work.band.last + 1 - work.contextTop
+            val coreBox = RectI(0, coreTop, page.width, coreBottom)
+            if (work.regions.isEmpty()) {
+                rendered.blit(cleaned.crop(coreBox), 0, work.band.first)
+                continue
+            }
+            val bandCleaned = cleaned.crop(RectI(0, work.contextTop, page.width, work.contextBottom))
+            val bandTranslations = work.regions.mapNotNull { byId[it.id] }
+            val bandImage = compose(bandCleaned, work.regions, bandTranslations, options) { drawn += it }
+            rendered.blit(bandImage.crop(coreBox), 0, work.band.first)
+        }
+        onProgress(PipelineProgress.of(PipelineStage.RENDERING, 0.92f, "Vẽ $drawn khối chữ"))
         onProgress(PipelineProgress.of(PipelineStage.DONE, 1f, "Hoàn tất"))
+
         return PageProcessingResult(
             image = rendered,
             cleanedImage = cleaned,
             regions = regions,
-            translations = translations,
+            translations = batch.translations,
             skipped = skipped,
             warnings = warnings.distinct(),
             elapsedMillis = System.currentTimeMillis() - started,

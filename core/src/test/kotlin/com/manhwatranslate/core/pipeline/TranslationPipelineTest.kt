@@ -156,9 +156,64 @@ class TranslationPipelineTest {
         }
     }
 
+    /**
+     * A banded page must reach the backend in one call. A long webtoon strip is cut into several
+     * bands, and one round trip per band is what made cloud translation feel slow.
+     */
+    @Test
+    fun `a banded page is translated in a single backend call`() {
+        val pageHeight = 4000
+        val pageWidth = 900
+        val image = ArgbImage.filled(pageWidth, pageHeight, Colors.opaque(250, 250, 250))
+        val boxes = (0 until 8).map { index ->
+            val top = 260 + index * 460
+            RectI(120, top, 700, top + 40)
+        }
+        for (box in boxes) {
+            for (y in box.top until box.bottom) {
+                for (x in box.left until box.right) image.set(x, y, Colors.opaque(15, 15, 15))
+            }
+        }
+        var calls = 0
+        val pipeline = TranslationPipeline(
+            recognizer = DarkBlocks,
+            translationService = TranslationService(
+                object : TranslationProvider {
+                    override val id = "test"
+                    override val displayName = "Test"
+                    override suspend fun translate(
+                        texts: List<String>,
+                        sourceLanguage: SourceScript,
+                        target: TranslationLanguage,
+                    ): List<String> {
+                        calls++
+                        return texts.map { "DONG $it" }
+                    }
+                },
+            ),
+            measurer = FakeMonospaceMeasurer(),
+            compositor = object : PageCompositor {
+                override fun compose(page: ArgbImage, items: List<RenderItem>): ArgbImage = page
+            },
+        )
+        val result = runBlocking {
+            pipeline.process(
+                image,
+                PipelineOptions(
+                    script = SourceScript.LATIN,
+                    maxTileHeight = 700,
+                    maxBandHeight = 900,
+                ),
+            )
+        }
+        assertEquals(1, calls, "the whole page should reach the backend in one call")
+        assertEquals(boxes.size, result.regions.size)
+        assertEquals(boxes.size, result.translations.size)
+        assertTrue(result.translations.all { it.translatedText.startsWith("DONG ") })
+    }
+
     /** Finds the dark blocks in whatever slice it is handed, like a real recognizer would. */
-    private object DarkBlocks : TileRecognizer {
-        override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
+    private object DarkBlocks : TileRecognizer {        override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
             val found = ArrayList<TextRegion>()
             var currentTop = -1
             var currentBottom = -1
