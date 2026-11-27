@@ -13,6 +13,15 @@ val sharedDebugKeystore: File? = System.getenv("MT_DEBUG_KEYSTORE")
     ?.takeIf { it.isNotBlank() }
     ?.let { file(it) }
 
+// A real distribution key, when one is supplied, outranks the shared CI key.
+val releaseKeystore = System.getenv("KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("KEY_ALIAS")
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+val hasReleaseKeystore = !releaseKeystore.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank()
+
 android {
     namespace = "com.manhwatranslate"
     compileSdk = 35
@@ -38,6 +47,14 @@ android {
     }
 
     signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(releaseKeystore!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword ?: releaseStorePassword
+            }
+        }
         if (sharedDebugKeystore != null) {
             create("sharedDebug") {
                 storeFile = sharedDebugKeystore
@@ -55,6 +72,11 @@ android {
             }
         }
         release {
+            signingConfig = when {
+                hasReleaseKeystore -> signingConfigs.getByName("release")
+                sharedDebugKeystore != null -> signingConfigs.getByName("sharedDebug")
+                else -> signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

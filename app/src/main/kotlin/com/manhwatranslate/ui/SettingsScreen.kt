@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,28 +15,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Colorize
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.FileOpen
-import androidx.compose.material.icons.outlined.FormatBold
-import androidx.compose.material.icons.outlined.FormatSize
-import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -46,18 +40,18 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,17 +60,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.manhwatranslate.core.erase.EraseMode
 import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.layout.FontWeightLevel
-import com.manhwatranslate.core.model.SourceScript
-import com.manhwatranslate.core.scan.SfxSensitivity
-import com.manhwatranslate.core.model.TranslationLanguage
 import com.manhwatranslate.core.model.OcrProviderType
+import com.manhwatranslate.core.model.SourceScript
+import com.manhwatranslate.core.model.TranslationLanguage
 import com.manhwatranslate.core.model.TranslationProviderType
-import com.manhwatranslate.ui.components.Divider
-import com.manhwatranslate.ui.components.SectionHeader
-import com.manhwatranslate.ui.components.SettingsCard
-import com.manhwatranslate.ui.components.SettingRow
+import com.manhwatranslate.core.scan.SfxSensitivity
+import com.manhwatranslate.data.AppSettings
+import com.manhwatranslate.ui.components.AppTopBar
+import com.manhwatranslate.ui.components.ExpandableGroup
+import com.manhwatranslate.ui.components.GroupCard
+import com.manhwatranslate.ui.components.Pill
+import com.manhwatranslate.ui.components.RowDivider
+import com.manhwatranslate.ui.components.SectionTitle
+import com.manhwatranslate.ui.components.ToggleRow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
@@ -94,20 +91,45 @@ fun SettingsScreen(
         }
     }
 
+    SettingsContent(
+        settings = settings,
+        configuredKeys = state.configuredKeys,
+        snackbar = snackbar,
+        apiKeyFor = { provider -> viewModel.apiKey(provider) },
+        onUpdate = { transform -> viewModel.update(transform) },
+        onSaveKey = { provider, key -> viewModel.saveApiKey(provider, key) },
+        onTestKey = { provider, key ->
+            viewModel.saveApiKey(provider, key)
+            viewModel.testApiKey()
+        },
+        onTestOcr = { viewModel.testOcrServer() },
+        onPickFont = onPickFont,
+        onClearFont = { viewModel.clearFont() },
+        onBack = onBack,
+    )
+}
+
+@Composable
+internal fun SettingsContent(
+    settings: AppSettings,
+    configuredKeys: Set<TranslationProviderType>,
+    snackbar: SnackbarHostState,
+    apiKeyFor: (TranslationProviderType) -> String,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onSaveKey: (TranslationProviderType, String) -> Unit,
+    onTestKey: (TranslationProviderType, String) -> Unit,
+    onTestOcr: () -> Unit,
+    onPickFont: () -> Unit,
+    onClearFont: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
+    var aboutOpen by rememberSaveable { mutableStateOf(false) }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text("Cài đặt") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Quay lại")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
-            )
+            AppTopBar(title = "Cài đặt", onBack = onBack)
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -115,95 +137,98 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { SectionHeader("Ngôn ngữ") }
+            item { SectionTitle("Ngôn ngữ") }
             item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    DropdownSetting(
+                GroupCard {
+                    DropdownRow(
                         title = "Chữ trên ảnh",
-                        subtitle = "Chọn tay khi truyện chỉ có một ngôn ngữ để nhận diện nhanh hơn",
-                        value = settings.sourceScript.label,
-                        icon = Icons.Outlined.Language,
+                        value = settings.sourceScript.displayLabel(),
                         options = SourceScript.entries.map { it to it.label },
-                        onSelect = { script -> viewModel.update { it.copy(sourceScript = script) } },
+                        onSelect = { script -> onUpdate { it.copy(sourceScript = script) } },
                     )
-                    Divider()
-                    DropdownSetting(
+                    RowDivider()
+                    DropdownRow(
                         title = "Dịch sang",
-                        subtitle = null,
                         value = settings.target.label,
-                        icon = Icons.Outlined.Language,
                         options = TranslationLanguage.entries.map { it to it.label },
-                        onSelect = { language -> viewModel.update { it.copy(target = language) } },
+                        onSelect = { language -> onUpdate { it.copy(target = language) } },
                     )
                 }
             }
 
-            item { SectionHeader("Nhận diện chữ", modifier = Modifier.padding(top = 8.dp)) }
+            item { SectionTitle("Nhận diện chữ") }
             item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    OcrProviderType.entries.forEach { provider ->
-                        OcrProviderRow(
-                            provider = provider,
-                            selected = settings.ocrProvider == provider,
-                            onSelect = { viewModel.update { it.copy(ocrProvider = provider) } },
-                        )
+                GroupCard {
+                    Column(Modifier.selectableGroup()) {
+                        OcrProviderType.entries.forEachIndexed { index, provider ->
+                            if (index > 0) RowDivider()
+                            ChoiceRow(
+                                title = provider.shortLabel(),
+                                description = provider.description(),
+                                selected = settings.ocrProvider == provider,
+                                onSelect = { onUpdate { it.copy(ocrProvider = provider) } },
+                            )
+                        }
                     }
-                }
-            }
-
-            if (settings.ocrProvider == OcrProviderType.PADDLE_OCR) {
-                item {
-                    SettingsCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        Text(
-                            text = "Server PaddleOCR",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = "Chạy bằng Docker: paddlepaddle/paddleocr, rồi nhập địa chỉ tại đây. " +
-                                "App gửi từng dải ảnh và nhận khung chữ về.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 10.dp),
-                        )
-                        OutlinedTextField(
-                            value = settings.paddleOcrUrl,
-                            onValueChange = { value -> viewModel.update { it.copy(paddleOcrUrl = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Địa chỉ server") },
-                            placeholder = { Text("http://192.168.1.10:8866") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = settings.paddleOcrToken,
-                            onValueChange = { value -> viewModel.update { it.copy(paddleOcrToken = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Token (nếu server yêu cầu)") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { viewModel.testOcrServer() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Kiểm tra server")
+                    if (settings.ocrProvider == OcrProviderType.PADDLE_OCR) {
+                        RowDivider()
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            OutlinedTextField(
+                                value = settings.paddleOcrUrl,
+                                onValueChange = { value ->
+                                    onUpdate { it.copy(paddleOcrUrl = value) }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Địa chỉ server") },
+                                placeholder = { Text("http://192.168.1.10:8866") },
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.small,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = settings.paddleOcrToken,
+                                onValueChange = { value ->
+                                    onUpdate { it.copy(paddleOcrToken = value) }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Token (nếu cần)") },
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.small,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = onTestOcr,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small,
+                            ) {
+                                Text("Kiểm tra server")
+                            }
                         }
                     }
                 }
             }
 
-            item { SectionHeader("Nhà cung cấp dịch", modifier = Modifier.padding(top = 8.dp)) }
+            item { SectionTitle("Bộ dịch") }
             item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    TranslationProviderType.entries.forEach { provider ->
-                        ProviderRow(
-                            provider = provider,
-                            selected = settings.provider == provider,
-                            configured = !provider.requiresApiKey || provider in state.configuredKeys,
-                            onSelect = { viewModel.update { it.copy(provider = provider) } },
-                        )
+                GroupCard {
+                    Column(Modifier.selectableGroup()) {
+                        TranslationProviderType.entries.forEachIndexed { index, provider ->
+                            if (index > 0) RowDivider()
+                            ChoiceRow(
+                                title = provider.label,
+                                hint = provider.hint,
+                                selected = settings.provider == provider,
+                                onSelect = { onUpdate { it.copy(provider = provider) } },
+                                badge = when {
+                                    !provider.requiresApiKey -> "Miễn phí"
+                                    provider !in configuredKeys -> "Cần key"
+                                    else -> null
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -212,26 +237,21 @@ fun SettingsScreen(
                 item {
                     ApiKeyCard(
                         settings = settings,
-                        hasKey = settings.provider in state.configuredKeys,
-                        currentKey = viewModel.apiKey(settings.provider),
-                        onTest = { key ->
-                            viewModel.saveApiKey(settings.provider, key)
-                            viewModel.testApiKey()
-                        },
-                        onSave = { key -> viewModel.saveApiKey(settings.provider, key) },
-                        onUpdate = viewModel::update,
+                        hasKey = settings.provider in configuredKeys,
+                        currentKey = apiKeyFor(settings.provider),
+                        onTest = { key -> onTestKey(settings.provider, key) },
+                        onSave = { key -> onSaveKey(settings.provider, key) },
+                        onUpdate = onUpdate,
                     )
                 }
             }
 
-            item { SectionHeader("Bản dịch", modifier = Modifier.padding(top = 8.dp)) }
+            item { SectionTitle("Trình bày bản dịch") }
             item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    DropdownSetting(
+                GroupCard {
+                    DropdownRow(
                         title = "Phông chữ",
-                        subtitle = "Tự động chọn theo nét chữ gốc trong ảnh",
                         value = settings.fontMode.label(),
-                        icon = Icons.Outlined.TextFields,
                         options = listOf(
                             FontMode.AUTO to "Tự động theo bản gốc",
                             FontMode.SANS to "Không chân (Sans)",
@@ -240,14 +260,12 @@ fun SettingsScreen(
                             FontMode.MONOSPACE to "Đều (Mono)",
                             FontMode.CUSTOM to "Font đã tải lên",
                         ),
-                        onSelect = { mode -> viewModel.update { it.copy(fontMode = mode) } },
+                        onSelect = { mode -> onUpdate { it.copy(fontMode = mode) } },
                     )
-                    Divider()
-                    DropdownSetting(
+                    RowDivider()
+                    DropdownRow(
                         title = "Độ đậm",
-                        subtitle = "Tự động đo theo độ dày nét chữ gốc",
                         value = settings.fontWeight?.label() ?: "Tự động",
-                        icon = Icons.Outlined.FormatBold,
                         options = listOf(
                             (null as FontWeightLevel?) to "Tự động",
                             FontWeightLevel.THIN to "Mảnh",
@@ -256,347 +274,173 @@ fun SettingsScreen(
                             FontWeightLevel.BOLD to "Đậm",
                             FontWeightLevel.BLACK to "Rất đậm",
                         ),
-                        onSelect = { weight -> viewModel.update { it.copy(fontWeight = weight) } },
+                        onSelect = { weight -> onUpdate { it.copy(fontWeight = weight) } },
                     )
-                    Divider()
-                    SettingRow(
+                    RowDivider()
+                    ToggleRow(
                         title = "Tự cân cỡ chữ",
-                        subtitle = "Lấy cỡ chữ gốc làm mốc rồi co lại cho vừa khung",
-                        icon = Icons.Outlined.FormatSize,
-                        trailing = {
-                            Switch(
-                                checked = settings.autoSizeFromOriginal,
-                                onCheckedChange = { value -> viewModel.update { it.copy(autoSizeFromOriginal = value) } },
-                            )
+                        subtitle = "Co chữ cho vừa khung gốc",
+                        checked = settings.autoSizeFromOriginal,
+                        onCheckedChange = { value ->
+                            onUpdate { it.copy(autoSizeFromOriginal = value) }
                         },
                     )
                     if (settings.fontMode == FontMode.CUSTOM) {
-                        Divider()
-                        SettingRow(
-                            title = "Font tuỳ chỉnh",
-                            subtitle = settings.customFontName.ifBlank { "Chưa tải font nào (.ttf/.otf)" },
-                            icon = Icons.Outlined.FileOpen,
-                            trailing = {
-                                androidx.compose.material3.TextButton(onClick = onPickFont) { Text("Chọn") }
-                            },
-                        )
+                        RowDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Font tuỳ chỉnh", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = settings.customFontName.ifBlank { "Chưa tải font nào" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            TextButton(onClick = onPickFont) { Text("Chọn") }
+                            if (settings.customFontName.isNotBlank()) {
+                                TextButton(onClick = onClearFont) { Text("Xoá") }
+                            }
+                        }
                     }
-                    Divider()
-                    SettingRow(
-                        title = "Tự chỉnh màu chữ",
-                        subtitle = "Bong bóng tối sẽ dùng chữ sáng, bong bóng sáng dùng chữ đậm",
-                        icon = Icons.Outlined.Palette,
-                        trailing = {
-                            Switch(
-                                checked = settings.autoContrast,
-                                onCheckedChange = { value -> viewModel.update { it.copy(autoContrast = value) } },
-                            )
-                        },
-                    )
-                    Divider()
-                    SliderSetting(
+                }
+            }
+
+            item {
+                ExpandableGroup(
+                    title = "Tinh chỉnh",
+                    subtitle = "Cỡ chữ, xoá chữ gốc, bộ lọc quét",
+                    expanded = advancedOpen,
+                    onToggle = { advancedOpen = !advancedOpen },
+                ) {
+                    SliderRow(
                         title = "Cỡ chữ",
                         value = settings.textSizeScale,
                         range = 0.6f..1.6f,
                         label = "${(settings.textSizeScale * 100).toInt()}%",
-                        onChange = { value -> viewModel.update { it.copy(textSizeScale = value) } },
+                        onChange = { value -> onUpdate { it.copy(textSizeScale = value) } },
                     )
-                    Divider()
-                    SliderSetting(
+                    RowDivider()
+                    SliderRow(
                         title = "Mở rộng khung chữ",
                         value = settings.boxExpansion,
                         range = 1f..1.5f,
                         label = "${(settings.boxExpansion * 100).toInt()}%",
-                        onChange = { value -> viewModel.update { it.copy(boxExpansion = value) } },
+                        onChange = { value -> onUpdate { it.copy(boxExpansion = value) } },
                     )
-                    Divider()
-                    SliderSetting(
+                    RowDivider()
+                    SliderRow(
                         title = "Viền chữ",
                         value = settings.strokeWidthFactor,
                         range = 0f..0.2f,
                         label = "${(settings.strokeWidthFactor * 100).toInt()}%",
-                        onChange = { value -> viewModel.update { it.copy(strokeWidthFactor = value) } },
+                        onChange = { value -> onUpdate { it.copy(strokeWidthFactor = value) } },
                     )
-                }
-            }
-
-            item { SectionHeader("Xoá chữ gốc", modifier = Modifier.padding(top = 8.dp)) }
-            item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Text(
-                        text = "Tự động chọn cách xoá phù hợp với từng bong bóng.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 10.dp),
-                    )
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        val modes = listOf(
-                            EraseMode.AUTO to "Tự động",
-                            EraseMode.SOLID to "Tô nền",
-                            EraseMode.DIFFUSION to "Lan màu",
-                        )
-                        modes.forEachIndexed { index, (mode, label) ->
-                            SegmentedButton(
-                                selected = settings.eraseMode == mode,
-                                onClick = { viewModel.update { it.copy(eraseMode = mode) } },
-                                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
-                                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    SettingRow(
-                        title = "Khớp màu nền",
-                        subtitle = "Vá chỗ chữ với bề mặt màu ước lượng từ bong bóng, không phải một màu phẳng",
-                        icon = Icons.Outlined.Colorize,
-                        trailing = {
-                            Switch(
-                                checked = settings.matchBackgroundColor,
-                                onCheckedChange = { value -> viewModel.update { it.copy(matchBackgroundColor = value) } },
-                            )
+                    RowDivider()
+                    ToggleRow(
+                        title = "Tự chỉnh màu chữ",
+                        subtitle = "Nền tối dùng chữ sáng",
+                        checked = settings.autoContrast,
+                        onCheckedChange = { value ->
+                            onUpdate { it.copy(autoContrast = value) }
                         },
                     )
-                    Divider()
-                }
-            }
-
-            item { SectionHeader("Bộ lọc khi quét", modifier = Modifier.padding(top = 8.dp)) }
-            item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Text(
-                        text = "Hiệu ứng âm thanh (CRASH!, BAM…) được vẽ thẳng lên hình nên rất dễ bị dịch " +
-                            "và xoá nhầm. Mức cao bỏ qua nhiều hơn, đổi lại có thể bỏ sót vài câu thoại lớn.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 10.dp),
-                    )
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        val levels = listOf(
-                            SfxSensitivity.OFF to "Tắt",
-                            SfxSensitivity.LOW to "Thấp",
-                            SfxSensitivity.MEDIUM to "Vừa",
-                            SfxSensitivity.HIGH to "Cao",
-                        )
-                        levels.forEachIndexed { index, (level, label) ->
-                            SegmentedButton(
-                                selected = settings.sfxSensitivity == level,
-                                onClick = { viewModel.update { it.copy(sfxSensitivity = level) } },
-                                shape = SegmentedButtonDefaults.itemShape(index, levels.size),
-                                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    RowDivider()
+                    LabeledBlock("Xoá chữ gốc") {
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            val modes = listOf(
+                                EraseMode.AUTO to "Tự động",
+                                EraseMode.SOLID to "Tô nền",
+                                EraseMode.DIFFUSION to "Lan màu",
                             )
+                            modes.forEachIndexed { index, (mode, label) ->
+                                SegmentedButton(
+                                    selected = settings.eraseMode == mode,
+                                    onClick = { onUpdate { it.copy(eraseMode = mode) } },
+                                    shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                                    label = {
+                                        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    },
+                                )
+                            }
                         }
                     }
-                }
-            }
-
-            item { SectionHeader("Thiết bị", modifier = Modifier.padding(top = 8.dp)) }
-            item {
-                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    DropdownSetting(
+                    ToggleRow(
+                        title = "Khớp màu nền",
+                        subtitle = "Vá chỗ chữ bằng màu ước lượng từ bong bóng",
+                        checked = settings.matchBackgroundColor,
+                        onCheckedChange = { value ->
+                            onUpdate { it.copy(matchBackgroundColor = value) }
+                        },
+                    )
+                    RowDivider()
+                    LabeledBlock("Bộ lọc hiệu ứng âm thanh") {
+                        Text(
+                            text = "Bỏ qua chữ như CRASH!, BAM… vẽ đè lên hình.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            val levels = listOf(
+                                SfxSensitivity.OFF to "Tắt",
+                                SfxSensitivity.LOW to "Thấp",
+                                SfxSensitivity.MEDIUM to "Vừa",
+                                SfxSensitivity.HIGH to "Cao",
+                            )
+                            levels.forEachIndexed { index, (level, label) ->
+                                SegmentedButton(
+                                    selected = settings.sfxSensitivity == level,
+                                    onClick = { onUpdate { it.copy(sfxSensitivity = level) } },
+                                    shape = SegmentedButtonDefaults.itemShape(index, levels.size),
+                                    label = {
+                                        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    RowDivider()
+                    DropdownRow(
                         title = "Độ phân giải xử lý",
-                        subtitle = "Ảnh dài được cắt thành dải để xử lý; mức này chỉ giới hạn độ nét",
                         value = "${settings.maxPagePixels / 1_000_000} MP",
-                        icon = Icons.Outlined.Palette,
                         options = listOf(
                             10_000_000 to "10 MP (nhẹ)",
                             24_000_000 to "24 MP (cân bằng)",
                             40_000_000 to "40 MP (nét, tốn RAM)",
                         ),
-                        onSelect = { value -> viewModel.update { it.copy(maxPagePixels = value) } },
+                        onSelect = { value -> onUpdate { it.copy(maxPagePixels = value) } },
                     )
                 }
             }
 
             item {
-                Text(
-                    text = "Manhwa Translate 1.0.0\n" +
-                        "Nhận diện chữ bằng ML Kit trên máy. Khi dùng nhà cung cấp đám mây, " +
-                        "chỉ phần văn bản được gửi đi, ảnh không rời khỏi thiết bị.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun OcrProviderRow(
-    provider: OcrProviderType,
-    selected: Boolean,
-    onSelect: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onSelect)
-        Spacer(Modifier.width(4.dp))
-        Column(Modifier.weight(1f)) {
-            Text(text = provider.label, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = provider.hint,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ProviderRow(
-    provider: TranslationProviderType,
-    selected: Boolean,
-    configured: Boolean,
-    onSelect: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onSelect)
-        Spacer(Modifier.width(4.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = provider.label,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                if (provider.requiresApiKey && configured) {
-                    Spacer(Modifier.width(6.dp))
-                    Icon(
-                        Icons.Outlined.Check,
-                        contentDescription = "Đã có API key",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            Text(
-                text = provider.hint,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ApiKeyCard(
-    settings: com.manhwatranslate.data.AppSettings,
-    hasKey: Boolean,
-    currentKey: String,
-    onSave: (String) -> Unit,
-    onTest: (String) -> Unit,
-    onUpdate: ((com.manhwatranslate.data.AppSettings) -> com.manhwatranslate.data.AppSettings) -> Unit,
-) {
-    var key by remember(settings.provider, currentKey) { mutableStateOf(currentKey) }
-    var visible by remember { mutableStateOf(false) }
-
-    SettingsCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Text(
-            text = "API key cho ${settings.provider.label}",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = if (hasKey) "Đã lưu key trên máy (mã hoá bằng Keystore)." else "Chưa có key.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
-        OutlinedTextField(
-            value = key,
-            onValueChange = { key = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API key") },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Outlined.Key, contentDescription = null) },
-            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { visible = !visible }) {
-                    Icon(
-                        if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                        contentDescription = null,
-                    )
-                }
-            },
-            shape = RoundedCornerShape(16.dp),
-        )
-
-        if (settings.provider == TranslationProviderType.OPENAI_COMPATIBLE) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = settings.openAiBaseUrl,
-                onValueChange = { value -> onUpdate { it.copy(openAiBaseUrl = value) } },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Base URL") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = settings.openAiModel,
-                onValueChange = { value -> onUpdate { it.copy(openAiModel = value) } },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Model") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-            )
-        }
-
-        if (settings.provider == TranslationProviderType.GEMINI) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = settings.geminiModel,
-                onValueChange = { value -> onUpdate { it.copy(geminiModel = value) } },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Model") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-            )
-        }
-
-        if (settings.provider == TranslationProviderType.DEEPL) {
-            Spacer(Modifier.height(6.dp))
-            SettingRow(
-                title = "Gói DeepL Pro",
-                subtitle = "Tắt nếu đang dùng API key miễn phí",
-                trailing = {
-                    Switch(
-                        checked = settings.deeplPro,
-                        onCheckedChange = { value -> onUpdate { it.copy(deeplPro = value) } },
-                    )
-                },
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onSave(key) }, modifier = Modifier.weight(1f)) {
-                Text("Lưu key")
-            }
-            androidx.compose.material3.OutlinedButton(
-                onClick = { onTest(key) },
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Kiểm tra")
-            }
-            if (hasKey) {
-                androidx.compose.material3.OutlinedButton(
-                    onClick = {
-                        key = ""
-                        onSave("")
-                    },
-                    modifier = Modifier.weight(1f),
+                ExpandableGroup(
+                    title = "Về ứng dụng",
+                    subtitle = "Phiên bản 1.0.0 · quyền riêng tư",
+                    expanded = aboutOpen,
+                    onToggle = { aboutOpen = !aboutOpen },
                 ) {
-                    Text("Xoá key")
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = "Manhwa Translate 1.0.0",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Nhận diện chữ bằng ML Kit ngay trên máy. Với nhà cung cấp đám mây, " +
+                                "chỉ văn bản được gửi đi, ảnh không rời thiết bị.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
                 }
             }
         }
@@ -604,49 +448,96 @@ private fun ApiKeyCard(
 }
 
 @Composable
-private fun <T> DropdownSetting(
+private fun ChoiceRow(
     title: String,
-    subtitle: String?,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    description: String? = null,
+    hint: String? = null,
+    badge: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton)
+            .padding(start = 12.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(4.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            val secondary = if (selected) hint ?: description else description
+            if (secondary != null) {
+                Text(
+                    text = secondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (badge != null) {
+            Spacer(Modifier.width(8.dp))
+            Pill(text = badge, maxWidth = 76.dp)
+        }
+    }
+}
+
+@Composable
+private fun <T> DropdownRow(
+    title: String,
     value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
     options: List<Pair<T, String>>,
     onSelect: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        SettingRow(
-            title = title,
-            subtitle = subtitle,
-            icon = icon,
-            onClick = { expanded = true },
-            trailing = {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = value,
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Icon(
-                            Icons.Outlined.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Icon(
+                        Icons.Outlined.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 }
-            },
-        )
+            }
+        }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (optionValue, label) ->
                 DropdownMenuItem(
-                    text = { Text(label) },
+                    text = { Text(label, style = MaterialTheme.typography.bodyLarge) },
                     onClick = {
                         expanded = false
                         onSelect(optionValue)
@@ -658,14 +549,14 @@ private fun <T> DropdownSetting(
 }
 
 @Composable
-private fun SliderSetting(
+private fun SliderRow(
     title: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     label: String,
     onChange: (Float) -> Unit,
 ) {
-    Column(Modifier.padding(vertical = 6.dp)) {
+    Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = title,
@@ -683,6 +574,185 @@ private fun SliderSetting(
             onValueChange = onChange,
             valueRange = range,
         )
+    }
+}
+
+@Composable
+private fun LabeledBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        content()
+    }
+}
+
+@Composable
+private fun ApiKeyCard(
+    settings: AppSettings,
+    hasKey: Boolean,
+    currentKey: String,
+    onSave: (String) -> Unit,
+    onTest: (String) -> Unit,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+) {
+    var key by remember(settings.provider, currentKey) { mutableStateOf(currentKey) }
+    var visible by remember { mutableStateOf(false) }
+
+    GroupCard {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Kết nối",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                StatusPill(text = if (hasKey) "Đã lưu" else "Chưa có", positive = hasKey)
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = key,
+                onValueChange = { key = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("API key") },
+                placeholder = { Text("Dán key cho ${settings.provider.label}") },
+                singleLine = true,
+                visualTransformation = if (visible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { visible = !visible }) {
+                        Icon(
+                            if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                            contentDescription = null,
+                        )
+                    }
+                },
+                shape = MaterialTheme.shapes.small,
+            )
+
+            if (settings.provider == TranslationProviderType.OPENAI_COMPATIBLE) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = settings.openAiBaseUrl,
+                    onValueChange = { value -> onUpdate { it.copy(openAiBaseUrl = value) } },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Base URL") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = settings.openAiModel,
+                    onValueChange = { value -> onUpdate { it.copy(openAiModel = value) } },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Model") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                )
+            }
+
+            if (settings.provider == TranslationProviderType.GEMINI) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = settings.geminiModel,
+                    onValueChange = { value -> onUpdate { it.copy(geminiModel = value) } },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Model") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                )
+            }
+
+            if (settings.provider == TranslationProviderType.DEEPL) {
+                ToggleRow(
+                    title = "Gói DeepL Pro",
+                    subtitle = "Tắt nếu đang dùng key miễn phí",
+                    checked = settings.deeplPro,
+                    onCheckedChange = { value -> onUpdate { it.copy(deeplPro = value) } },
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onSave(key) },
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text("Lưu")
+                }
+                OutlinedButton(
+                    onClick = { onTest(key) },
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Kiểm tra")
+                }
+                if (hasKey) {
+                    OutlinedButton(
+                        onClick = {
+                            key = ""
+                            onSave("")
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text("Xoá")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun SourceScript.displayLabel(): String = when (this) {
+    SourceScript.AUTO -> "Tự động"
+    SourceScript.LATIN -> "Latinh"
+    SourceScript.KOREAN -> "Tiếng Hàn"
+    SourceScript.CHINESE -> "Tiếng Trung"
+    SourceScript.JAPANESE -> "Tiếng Nhật"
+}
+
+private fun OcrProviderType.shortLabel(): String = when (this) {
+    OcrProviderType.ML_KIT -> "ML Kit trên máy"
+    OcrProviderType.PADDLE_OCR -> "PaddleOCR (server)"
+}
+
+private fun OcrProviderType.description(): String = when (this) {
+    OcrProviderType.ML_KIT -> "Chạy offline, không cần server"
+    OcrProviderType.PADDLE_OCR -> "Server riêng, bắt chữ tốt hơn"
+}
+
+@Composable
+private fun StatusPill(text: String, positive: Boolean) {
+    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (positive) {
+                Icon(
+                    Icons.Outlined.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(13.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

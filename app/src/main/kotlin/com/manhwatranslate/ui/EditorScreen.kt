@@ -5,6 +5,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,15 +27,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -39,16 +47,15 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -56,9 +63,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,11 +89,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.manhwatranslate.core.model.TextRegion
+import com.manhwatranslate.data.SavedPage
+import com.manhwatranslate.ui.components.AppTopBar
+import com.manhwatranslate.ui.components.Pill
+import com.manhwatranslate.ui.theme.LocalAccents
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
     viewModel: EditorViewModel,
@@ -116,77 +123,85 @@ fun EditorScreen(
         }
     }
 
+    EditorContent(
+        state = state,
+        snackbar = snackbar,
+        onBack = onBack,
+        onNavigateToPage = onNavigateToPage,
+        onToggleOriginal = { viewModel.toggleOriginal() },
+        onSave = {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                viewModel.saveToGallery()
+            } else {
+                permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        },
+        onShare = { viewModel.share() },
+        onDeletePage = { viewModel.deletePage() },
+        onSelectRegion = { viewModel.selectRegion(it) },
+        onTextChange = { viewModel.updateEditingText(it) },
+        onApply = { viewModel.applyEdit() },
+        onRetranslate = { viewModel.retranslateSelected() },
+        onMessageShown = { viewModel.consumeMessage() },
+    )
+}
+
+@Composable
+internal fun EditorContent(
+    state: EditorUiState,
+    snackbar: SnackbarHostState,
+    onBack: () -> Unit,
+    onNavigateToPage: (String) -> Unit,
+    onToggleOriginal: () -> Unit,
+    onSave: () -> Unit,
+    onShare: () -> Unit,
+    onDeletePage: () -> Unit,
+    onSelectRegion: (Int?) -> Unit,
+    onTextChange: (String) -> Unit,
+    onApply: () -> Unit,
+    onRetranslate: () -> Unit,
+    onMessageShown: () -> Unit,
+) {
     val page = state.page
     val groupPages = state.groupPages
     val currentIndex = groupPages.indexOfFirst { it.id == page?.id }
+    val accents = LocalAccents.current
 
     var menuOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = if (page != null && page.pageCount > 1) {
-                                "Trang ${page.pageIndex + 1}/${page.pageCount}"
-                            } else {
-                                "Bản dịch"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        if (page != null) {
-                            Text(
-                                text = buildString {
-                                    append("${page.regions.size} vùng chữ")
-                                    if (page.skippedCount > 0) append(" · ${page.skippedCount} SFX bỏ qua")
-                                    append(" · ${page.providerName}")
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+            AppTopBar(
+                title = if (page != null && page.pageCount > 1) {
+                    "Trang ${page.pageIndex + 1}/${page.pageCount}"
+                } else {
+                    "Bản dịch"
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Quay lại")
-                    }
-                },
+                subtitle = page?.let { "${it.regions.size} vùng · ${it.providerName}" },
+                onBack = onBack,
                 actions = {
-                    if (currentIndex > 0) {
-                        IconButton(onClick = { onNavigateToPage(groupPages[currentIndex - 1].id) }) {
-                            Icon(Icons.Outlined.ChevronLeft, contentDescription = "Trang trước")
-                        }
-                    }
-                    if (currentIndex >= 0 && currentIndex < groupPages.lastIndex) {
-                        IconButton(onClick = { onNavigateToPage(groupPages[currentIndex + 1].id) }) {
-                            Icon(Icons.Outlined.ChevronRight, contentDescription = "Trang sau")
-                        }
-                    }
-                    IconButton(onClick = { viewModel.toggleOriginal() }) {
+                    IconButton(onClick = onToggleOriginal) {
                         Icon(
                             Icons.Outlined.Compare,
-                            contentDescription = if (state.showOriginal) "Xem bản dịch" else "Xem bản gốc",
-                            tint = if (state.showOriginal) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            contentDescription = if (state.showOriginal) {
+                                "Xem bản dịch"
+                            } else {
+                                "Xem bản gốc"
+                            },
+                            tint = if (state.showOriginal) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     }
-                    IconButton(onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            ) == PackageManager.PERMISSION_GRANTED
-                        ) {
-                            viewModel.saveToGallery()
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        }
-                    }) {
+                    IconButton(onClick = onSave) {
                         Icon(Icons.Outlined.SaveAlt, contentDescription = "Lưu ảnh")
                     }
                     Box {
@@ -199,23 +214,22 @@ fun EditorScreen(
                                 leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
-                                    viewModel.share()
+                                    onShare()
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Xoá trang") },
-                                leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                                },
                                 onClick = {
                                     menuOpen = false
-                                    viewModel.deletePage()
+                                    onDeletePage()
                                 },
                             )
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
             )
         },
         bottomBar = {
@@ -223,10 +237,10 @@ fun EditorScreen(
                 RegionEditor(
                     page = page,
                     state = state,
-                    onSelect = { viewModel.selectRegion(it) },
-                    onTextChange = { viewModel.updateEditingText(it) },
-                    onApply = { viewModel.applyEdit() },
-                    onRetranslate = { viewModel.retranslateSelected() },
+                    onSelect = onSelectRegion,
+                    onTextChange = onTextChange,
+                    onApply = onApply,
+                    onRetranslate = onRetranslate,
                 )
             }
         },
@@ -240,25 +254,49 @@ fun EditorScreen(
             val bitmap = state.image
             if (bitmap != null) {
                 ZoomablePage(
-                        bitmap = bitmap,
-                        regions = page?.regions.orEmpty(),
-                        selectedRegionId = state.selectedRegionId,
-                        showBoxes = !state.showOriginal,
-                        onSelect = { viewModel.selectRegion(it) },
-                    )
+                    bitmap = bitmap,
+                    regions = page?.regions.orEmpty(),
+                    selectedRegionId = state.selectedRegionId,
+                    showBoxes = !state.showOriginal,
+                    onSelect = onSelectRegion,
+                )
             }
             if (state.loading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
-            if (state.busy) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    shape = RoundedCornerShape(50),
+            if (groupPages.size > 1 && currentIndex >= 0) {
+                PageSwitcher(
+                    index = currentIndex,
+                    count = groupPages.size,
+                    onPrevious = if (currentIndex > 0) {
+                        { onNavigateToPage(groupPages[currentIndex - 1].id) }
+                    } else {
+                        null
+                    },
+                    onNext = if (currentIndex < groupPages.lastIndex) {
+                        { onNavigateToPage(groupPages[currentIndex + 1].id) }
+                    } else {
+                        null
+                    },
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 12.dp),
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 12.dp),
+                )
+            }
+            AnimatedVisibility(
+                visible = state.busy,
+                enter = fadeIn() + slideInVertically { -it / 3 },
+                exit = fadeOut() + slideOutVertically { -it / 3 },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    shape = CircleShape,
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -267,17 +305,75 @@ fun EditorScreen(
                         CircularProgressIndicator(
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(14.dp),
+                            color = MaterialTheme.colorScheme.inverseOnSurface,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(state.busyLabel, style = MaterialTheme.typography.bodyMedium)
+                        Text(state.busyLabel, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             state.message?.let { message ->
                 LaunchedEffect(message) {
                     snackbar.showSnackbar(message)
-                    viewModel.consumeMessage()
+                    onMessageShown()
                 }
+            }
+            if (state.showOriginal) {
+                Surface(
+                    shape = CircleShape,
+                    color = accents.selection.copy(alpha = 0.92f),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        text = "Bản gốc",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Black.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageSwitcher(
+    index: Int,
+    count: Int,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { onPrevious?.invoke() }, enabled = onPrevious != null) {
+                Icon(
+                    Icons.Outlined.ChevronLeft,
+                    contentDescription = "Trang trước",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Text(
+                text = "${index + 1}/$count",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            IconButton(onClick = { onNext?.invoke() }, enabled = onNext != null) {
+                Icon(
+                    Icons.Outlined.ChevronRight,
+                    contentDescription = "Trang sau",
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }
@@ -294,6 +390,7 @@ private fun ZoomablePage(
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    val accents = LocalAccents.current
 
     val fitScale = remember(canvasSize, bitmap) {
         if (canvasSize.width <= 0f || canvasSize.height <= 0f) 1f
@@ -352,7 +449,7 @@ private fun ZoomablePage(
                     val strokeWidth = max(1.5f, 2.2f / scale)
                     regions.forEach { region ->
                         val selected = region.id == selectedRegionId
-                        val color = if (selected) Color(0xFFFFC857) else Color(0xFF38BDF8)
+                        val color = if (selected) accents.selection else Color(0xFF38BDF8)
                         val rectSize = Size(region.box.width.toFloat(), region.box.height.toFloat())
                         val topLeft = Offset(region.box.left.toFloat(), region.box.top.toFloat())
                         if (selected) {
@@ -377,7 +474,7 @@ private fun ZoomablePage(
 
 @Composable
 private fun RegionEditor(
-    page: com.manhwatranslate.data.SavedPage,
+    page: SavedPage,
     state: EditorUiState,
     onSelect: (Int?) -> Unit,
     onTextChange: (String) -> Unit,
@@ -386,50 +483,65 @@ private fun RegionEditor(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(top = 12.dp, bottom = 12.dp),
         ) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 4.dp),
-            ) {
-                items(page.regions, key = { it.id }) { region ->
-                    val translation = page.translations.firstOrNull { it.regionId == region.id }
-                    val selected = region.id == state.selectedRegionId
-                    AssistChip(
-                        onClick = { onSelect(if (selected) null else region.id) },
-                        label = {
-                            Text(
-                                text = "#${region.id + 1} " + translation?.translatedText.orEmpty().take(24),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                        ),
+            val selectedRegion = page.regions.firstOrNull { it.id == state.selectedRegionId }
+            if (selectedRegion == null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.TouchApp,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Chạm vào khung chữ để sửa bản dịch",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
+            } else {
+                val chipListState = rememberLazyListState()
+                val selectedIndex = page.regions.indexOfFirst { it.id == state.selectedRegionId }
+                LaunchedEffect(selectedIndex) {
+                    if (selectedIndex >= 0) chipListState.animateScrollToItem(selectedIndex)
+                }
+                LazyRow(
+                    state = chipListState,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 10.dp),
+                ) {
+                    items(page.regions, key = { it.id }) { region ->
+                        val translation = page.translations.firstOrNull { it.regionId == region.id }
+                        val selected = region.id == state.selectedRegionId
+                        RegionChip(
+                            label = "#${region.id + 1}",
+                            text = translation?.translatedText.orEmpty().ifBlank { region.text },
+                            selected = selected,
+                            onClick = { onSelect(if (selected) null else region.id) },
+                        )
+                    }
+                }
 
-            val selectedRegion = page.regions.firstOrNull { it.id == state.selectedRegionId }
-            if (selectedRegion != null) {
-                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Gốc",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Text(
                     text = selectedRegion.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -439,39 +551,100 @@ private fun RegionEditor(
                     onValueChange = onTextChange,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 72.dp),
+                        .heightIn(min = 68.dp),
                     textStyle = MaterialTheme.typography.bodyLarge,
-                    placeholder = { Text("Bản dịch cho vùng chữ này") },
-                    shape = RoundedCornerShape(16.dp),
+                    label = { Text("Bản dịch") },
+                    shape = MaterialTheme.shapes.medium,
                     maxLines = 4,
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(
+                    Button(
+                        onClick = onApply,
+                        enabled = !state.busy,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Áp dụng", fontWeight = FontWeight.SemiBold)
+                    }
+                    OutlinedButton(
                         onClick = onRetranslate,
                         enabled = !state.busy,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = MaterialTheme.shapes.small,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
                         Spacer(Modifier.width(6.dp))
                         Text("Dịch lại")
                     }
-                    androidx.compose.material3.Button(
-                        onClick = onApply,
-                        enabled = !state.busy,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Áp dụng")
-                    }
                 }
-            } else {
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegionChip(
+    label: String,
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = CircleShape,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        border = if (selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+        } else {
+            null
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            if (text.isNotBlank()) {
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "Chạm vào một khung chữ trên ảnh để sửa bản dịch",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 10.dp),
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 150.dp),
                 )
             }
         }
