@@ -269,6 +269,7 @@ class AdBlocker(private val assetReader: (String) -> String?) {
                 if (lazy && lazy.indexOf('http') === 0) src = lazy;
               }
               if (!src) continue;
+              if (/\.svg(\?|$)/i.test(src)) continue;
               var rect = img.getBoundingClientRect();
               if (rect.width < 300 && img.naturalWidth < 300) continue;
               if (rect.height > 0 && rect.height < 120 &&

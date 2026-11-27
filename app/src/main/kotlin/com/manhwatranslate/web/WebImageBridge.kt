@@ -14,7 +14,10 @@ import com.manhwatranslate.pipeline.TranslationEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -65,20 +68,31 @@ class WebImageBridge(
     companion object {
         const val LOCAL_HOST = "manhwa-translate.local"
         private const val MAX_CACHED_PAGES = 32
-        private const val MAX_IMAGE_PIXELS = 12_000_000
+        /**
+         * A page is decoded to at most this many pixels. The pipeline needs three page-sized
+         * buffers plus a bitmap, so twelve megapixels was already past what the heap allows on a
+         * phone once the WebView shares it; an oversized strip is sampled down instead.
+         */
+        private const val MAX_IMAGE_PIXELS = 8_000_000
 
         /**
          * Pages the pipeline works on at once. It holds three page-sized buffers per image, so
          * two at a time is what fits in a phone's heap. Downloads are cheap by comparison and run
          * ahead of it, so an image rarely waits for its bytes once a slot frees up.
          */
-        private const val MAX_PARALLEL = 3
-        private const val MAX_SMALL_PARALLEL = 6
-        private const val LARGE_PAGE_PIXELS = 6_000_000
+        /**
+         * Megapixels the pipeline may hold at once. Three page-sized buffers plus a bitmap per
+         * image means a 12 MP budget; a tall strip takes most of it and runs alone, a small
+         * banner takes one unit and a dozen of them can run together.
+         */
+        private const val PIXEL_BUDGET_MP = 8
         private const val MAX_DOWNLOADS = 4
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+        private const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
 
     private val client = OkHttpClient.Builder()
@@ -92,8 +106,7 @@ class WebImageBridge(
     private val orderLock = Any()
     private val pending = AtomicInteger(0)
     private val completed = AtomicInteger(0)
-    private val smallGate = Semaphore(MAX_SMALL_PARALLEL)
-    private val largeGate = Semaphore(MAX_PARALLEL)
+    private val pixelBudget = PixelBudget(PIXEL_BUDGET_MP)
     private val downloadGate = Semaphore(MAX_DOWNLOADS)
 
     private val warnings = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
@@ -156,13 +169,17 @@ class WebImageBridge(
         scope.launch {
             var refine: (suspend () -> Unit)? = null
             try {
-                val bytes = download(image.src) ?: throw IOException("Máy chủ ảnh từ chối tải")
+                val fetched = download(image.src)
+                val bytes = fetched.bytes ?: throw IOException(fetched.reason ?: "Máy chủ ảnh từ chối tải")
                 val budget = minOf(settingsProvider().maxPagePixels, MAX_IMAGE_PIXELS)
-                val plan = plan(bytes, budget) ?: throw IOException("Ảnh không đọc được")
-                val gate = if (plan.pixels > LARGE_PAGE_PIXELS) largeGate else smallGate
-                gate.acquire()
+                val plan = plan(bytes, budget)
+                    ?: throw IOException(
+                        "ảnh không đọc được (${bytes.size / 1024} KB, ${sniff(bytes)})",
+                    )
+                val units = pixelBudget.acquire((plan.pixels + 999_999) / 1_000_000)
                 try {
-                    val page = decode(bytes, plan) ?: throw IOException("Ảnh không đọc được")
+                    val page = decode(bytes, plan)
+                        ?: throw IOException("ảnh không đọc được (${bytes.size / 1024} KB)")
                     val settings = settingsProvider()
                     val clock = StageClock()
                     val fast = settings.onDeviceFirst()
@@ -200,14 +217,15 @@ class WebImageBridge(
                         }
                     }
                 } finally {
-                    gate.release()
+                    pixelBudget.release(units)
                 }
             } catch (error: OutOfMemoryError) {
                 reports[image.index] = "ảnh quá lớn so với bộ nhớ máy"
                 onFailed(image.index, "Ảnh quá lớn so với bộ nhớ máy")
             } catch (error: Exception) {
                 val reason = error.message ?: "lỗi dịch ảnh"
-                reports[image.index] = "không dịch được: $reason"
+                android.util.Log.d("WebImageBridge", "lỗi ảnh ${image.index}: ${image.src} — $reason")
+                reports[image.index] = "không dịch được: $reason (${image.src.takeLast(48)})"
                 onFailed(image.index, reason)
             } finally {
                 val done = completed.incrementAndGet()
@@ -290,29 +308,55 @@ class WebImageBridge(
         }
     }
 
-    private suspend fun download(url: String): ByteArray? {
+    private suspend fun download(url: String): Fetched {
         val cookie = withContext(Dispatchers.Main) {
             runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
         }
         return withContext(Dispatchers.IO) {
             downloadGate.withPermit {
-                fetch(url, cookie, referer = true) ?: fetch(url, cookie, referer = false)
+                fetch(url, cookie, referer = true, USER_AGENT)
+                    ?: fetch(url, cookie, referer = false, USER_AGENT)
+                    ?: fetch(url, cookie, referer = true, DESKTOP_USER_AGENT)
+                    ?: Fetched(null, "máy chủ ảnh từ chối tải (hotlink hoặc cần đăng nhập)")
             }
         }
     }
 
+    private data class Fetched(val bytes: ByteArray?, val reason: String?)
+
     /**
      * One attempt at the bytes. Some sites reject a hotlinked image and answer only when the
-     * referer is gone, so the caller retries without it rather than leaving the page untranslated.
+     * referer is gone, or only for a desktop user agent, so the caller tries again those ways
+     * rather than leaving the page untranslated. An HTML answer is reported as such: a listing
+     * page served in place of the image used to fail later as "unreadable image".
      */
-    private fun fetch(url: String, cookie: String?, referer: Boolean): ByteArray? = runCatching {
-        val builder = Request.Builder().url(url).header("User-Agent", USER_AGENT)
+    private fun fetch(
+        url: String,
+        cookie: String?,
+        referer: Boolean,
+        agent: String,
+    ): Fetched? = runCatching {
+        val builder = Request.Builder().url(url).header("User-Agent", agent)
         if (referer && pageUrl.isNotBlank()) builder.header("Referer", pageUrl)
         cookie?.let { builder.header("Cookie", it) }
         client.newCall(builder.build()).execute().use { response ->
-            if (response.isSuccessful) response.body?.bytes() else null
+            if (!response.isSuccessful) {
+                return@use Fetched(null, "máy chủ trả HTTP ${response.code}")
+            }
+            val type = response.header("Content-Type").orEmpty().lowercase()
+            if (type.isNotEmpty() && !type.startsWith("image/")) {
+                return@use Fetched(null, "máy chủ trả $type thay vì ảnh")
+            }
+            val body = response.body?.bytes()
+            if (body == null || body.isEmpty()) {
+                Fetched(null, "máy chủ trả ảnh rỗng")
+            } else {
+                Fetched(body, null)
+            }
         }
-    }.getOrNull()
+    }.getOrElse { error ->
+        Fetched(null, "không tải được ảnh: ${error.message ?: error.javaClass.simpleName}")
+    }
 
     private suspend fun decode(bytes: ByteArray, plan: Plan): ArgbImage? =
         withContext(Dispatchers.Default) {
@@ -325,6 +369,20 @@ class WebImageBridge(
             val scaled = scaleToBudget(bitmap, plan.pixels)
             imageStore.fromBitmap(scaled).also { scaled.recycle() }
         }
+
+    /** Names what the server actually sent, so an unreadable image is diagnosable. */
+    private fun sniff(bytes: ByteArray): String {
+        fun at(index: Int): Int = if (index < bytes.size) bytes[index].toInt() and 0xFF else -1
+        return when {
+            at(0) == 0xFF && at(1) == 0xD8 -> "jpeg"
+            at(0) == 0x89 && at(1) == 0x50 -> "png"
+            at(0) == 0x47 && at(1) == 0x49 -> "gif"
+            at(0) == 0x52 && at(1) == 0x49 && at(8) == 0x57 -> "webp"
+            at(4) == 0x66 && at(5) == 0x74 && at(6) == 0x79 -> "avif/heif"
+            at(0) == 0x3C -> "html/xml"
+            else -> "không rõ"
+        }
+    }
 
     private data class Plan(val sample: Int, val pixels: Int)
 
@@ -384,6 +442,36 @@ class WebImageBridge(
      * phone and holds the bytes for a whole chapter in memory, while text at quality 95 stays
      * crisp. The reader shows the result in a WebView, so nothing needs the lossless form.
      */
+    /**
+     * Admits images by pixel cost so a chapter of tall strips cannot exhaust the heap the way a
+     * fixed number of slots did. A request either takes all its units or waits, so nothing holds
+     * half a reservation.
+     */
+    private class PixelBudget(private val total: Int) {
+        private val mutex = Mutex()
+        private var used = 0
+
+        suspend fun acquire(units: Int): Int {
+            val need = units.coerceIn(1, total)
+            while (true) {
+                val granted = mutex.withLock {
+                    if (used + need <= total) {
+                        used += need
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (granted) return need
+                delay(25)
+            }
+        }
+
+        suspend fun release(units: Int) {
+            mutex.withLock { used -= units }
+        }
+    }
+
     private suspend fun encodeJpeg(image: ArgbImage): ByteArray? = withContext(Dispatchers.Default) {
         runCatching {
             val bitmap = imageStore.toBitmap(image)

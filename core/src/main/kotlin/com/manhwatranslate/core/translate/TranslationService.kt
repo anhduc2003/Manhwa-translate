@@ -67,13 +67,15 @@ class TranslationService(
         var completedBatches = 0
 
         val resultMap = HashMap<Pair<SourceScript, String>, String>()
+        val failedTexts = HashSet<String>()
         for ((groupScript, group) in groups) {
             val pending = group.map { it.text.trim() }.filter { it.isNotEmpty() }.distinct()
             for (batch in pending.chunked(batchSize)) {
-                val translated = translateBatchWithRetry(batch, groupScript, target, warnings)
+                val attempt = translateBatchWithRetry(batch, groupScript, target, warnings)
+                if (!attempt.succeeded) failedTexts += batch
                 batch.forEachIndexed { offset, source ->
                     resultMap[groupScript to source] =
-                        translated.getOrNull(offset)?.takeIf { it.isNotBlank() } ?: source
+                        attempt.texts.getOrNull(offset)?.takeIf { it.isNotBlank() } ?: source
                 }
                 completedBatches++
                 onProgress(completedBatches.toFloat() / totalBatches.toFloat())
@@ -84,7 +86,9 @@ class TranslationService(
             val source = region.text.trim()
             val regionScript = if (region.script == SourceScript.AUTO) script else region.script
             val translated = resultMap[regionScript to source] ?: source
-            val failed = translated == source && source.isNotEmpty()
+            // A short "OH!" that a model leaves alone is still a translation, not a failure;
+            // only a batch that never reached the backend leaves the original in place.
+            val failed = source in failedTexts
             RegionTranslation(
                 regionId = region.id,
                 sourceText = region.text,
@@ -109,18 +113,22 @@ class TranslationService(
         return letters && batch.indices.all { batch[it].trim() == result[it].trim() }
     }
 
+    private data class BatchAttempt(val texts: List<String>, val succeeded: Boolean)
+
     private suspend fun translateBatchWithRetry(
         batch: List<String>,
         script: SourceScript,
         target: TranslationLanguage,
         warnings: MutableList<String>,
-    ): List<String> {
+    ): BatchAttempt {
         var attempt = 0
         var lastError: Throwable? = null
         while (attempt <= maxRetries) {
             try {
                 val result = provider.translate(batch, script, target)
-                if (result.size == batch.size && !isEcho(batch, result)) return result
+                if (result.size == batch.size && !isEcho(batch, result)) {
+                    return BatchAttempt(result, true)
+                }
                 lastError = if (result.size != batch.size) {
                     IllegalStateException("Provider ${provider.id} trả về ${result.size}/${batch.size} dòng")
                 } else {
@@ -142,17 +150,17 @@ class TranslationService(
                 if (error is kotlinx.coroutines.CancellationException) throw error
                 warnings += "${provider.displayName} và ${fallback.displayName} đều không dịch được " +
                     "($reason)"
-                return batch
+                return BatchAttempt(batch, false)
             }
             if (recovered.size == batch.size && !isEcho(batch, recovered)) {
                 warnings += "${provider.displayName} không dịch được ($reason), " +
                     "đã chuyển sang ${fallback.displayName}"
-                return recovered
+                return BatchAttempt(recovered, true)
             }
             warnings += "${fallback.displayName} trả về ${recovered.size}/${batch.size} dòng"
-            return batch
+            return BatchAttempt(batch, false)
         }
         warnings += "Dịch thất bại (${provider.displayName}): ${lastError?.message ?: "lỗi không xác định"}"
-        return batch
+        return BatchAttempt(batch, false)
     }
 }
