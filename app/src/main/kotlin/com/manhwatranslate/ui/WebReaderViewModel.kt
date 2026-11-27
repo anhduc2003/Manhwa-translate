@@ -74,7 +74,7 @@ class WebReaderViewModel(
                 val finished = total > 0 && done >= total
                 current.copy(
                     translatedCount = done,
-                    totalImages = maxOf(total, current.totalImages),
+                    totalImages = maxOf(total, current.totalImages).coerceAtLeast(done),
                     translating = total > 0 && !finished,
                 )
             }

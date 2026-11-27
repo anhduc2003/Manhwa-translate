@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.webkit.CookieManager
 import com.manhwatranslate.core.image.ArgbImage
 import com.manhwatranslate.core.model.PageProcessingResult
+import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.model.PipelineProgress
 import com.manhwatranslate.core.model.PipelineStage
 import com.manhwatranslate.data.AppSettings
@@ -137,6 +138,10 @@ class WebImageBridge(
     /** Queues every image for translation; progress arrives through [onProgress]. */
     fun translate(images: List<PageImage>) {
         if (images.isEmpty()) return
+        if (completed.get() >= pending.get()) {
+            pending.set(0)
+            completed.set(0)
+        }
         startedAt.set(System.currentTimeMillis())
         detectNanos.set(0)
         translateNanos.set(0)
@@ -149,6 +154,7 @@ class WebImageBridge(
 
     private fun queue(image: PageImage) {
         scope.launch {
+            var refine: (suspend () -> Unit)? = null
             try {
                 val bytes = download(image.src) ?: throw IOException("Máy chủ ảnh từ chối tải")
                 val budget = minOf(settingsProvider().maxPagePixels, MAX_IMAGE_PIXELS)
@@ -157,10 +163,18 @@ class WebImageBridge(
                 gate.acquire()
                 try {
                     val page = decode(bytes, plan) ?: throw IOException("Ảnh không đọc được")
+                    val settings = settingsProvider()
                     val clock = StageClock()
-                    val result = withContext(Dispatchers.Default) {
-                        engine.processPage(page, settingsProvider()) { progress ->
-                            clock.onProgress(progress)
+                    val fast = settings.onDeviceFirst()
+                    val result = try {
+                        withContext(Dispatchers.Default) {
+                            engine.processPage(page, fast) { progress -> clock.onProgress(progress) }
+                        }
+                    } catch (error: Throwable) {
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        if (fast === settings) throw error
+                        withContext(Dispatchers.Default) {
+                            engine.processPage(page, settings) { progress -> clock.onProgress(progress) }
                         }
                     }
                     clock.finish()
@@ -174,11 +188,17 @@ class WebImageBridge(
                     )
                     detectNanos.addAndGet(clock.deviceNanos)
                     translateNanos.addAndGet(clock.translateNanos)
-                    val token = "${image.index}-${System.currentTimeMillis()}.jpg"
-                    val jpeg = encodeJpeg(result.image) ?: throw IOException("Không mã hoá được ảnh")
-                    cache[token] = jpeg
-                    remember(token)
-                    withContext(Dispatchers.Main) { onTranslated(image.index, token) }
+                    publish(image.index, result.image)
+                    if (settings.provider != TranslationProviderType.ON_DEVICE &&
+                        result.regions.isNotEmpty()
+                    ) {
+                        refine = {
+                            val started = System.currentTimeMillis()
+                            val better = engine.refineTranslation(result, settings)
+                            translateNanos.addAndGet(System.currentTimeMillis() - started)
+                            publish(image.index, better.image)
+                        }
+                    }
                 } finally {
                     gate.release()
                 }
@@ -204,8 +224,29 @@ class WebImageBridge(
                     )
                 }
             }
+            // The cloud pass runs outside the pixel gate: the page is already readable, and the
+            // slower model must not hold a slot the next page needs.
+            runCatching { refine?.invoke() }
         }
     }
+
+    /** Hands one rendered page to the WebView under a fresh token. */
+    private suspend fun publish(index: Int, image: ArgbImage) {
+        val token = "$index-${System.currentTimeMillis()}.jpg"
+        val jpeg = encodeJpeg(image) ?: throw IOException("Không mã hoá được ảnh")
+        cache[token] = jpeg
+        remember(token)
+        withContext(Dispatchers.Main) { onTranslated(index, token) }
+    }
+
+    /**
+     * Reads and draws the page with the on-device model first, so a page becomes readable in a
+     * second or two instead of waiting a cloud round trip; a configured cloud backend then
+     * replaces it with the better translation.
+     */
+    private fun AppSettings.onDeviceFirst(): AppSettings =
+        if (provider == TranslationProviderType.ON_DEVICE) this
+        else copy(provider = TranslationProviderType.ON_DEVICE)
 
     /** Notes what happened to an image, so a page that comes back untranslated says why. */
     private fun describe(image: PageImage, result: PageProcessingResult) {

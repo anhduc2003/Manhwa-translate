@@ -49,6 +49,35 @@ class TranslationEngine(
         return pipeline.process(page, options, onProgress)
     }
 
+    /**
+     * Re-translates a finished page with the backend the user picked and draws it back over the
+     * same erased artwork, which is how a page shows a readable translation immediately and a
+     * better one as soon as the cloud model answers.
+     */
+    suspend fun refineTranslation(
+        result: PageProcessingResult,
+        settings: AppSettings,
+    ): PageProcessingResult {
+        if (result.regions.isEmpty()) return result
+        val service = TranslationService(
+            providerResolver(settings),
+            backup = backupResolver(settings),
+        )
+        val options = settings.toPipelineOptions()
+        val batch = service.translate(
+            regions = result.regions,
+            script = options.script,
+            target = options.target,
+            minLetterCount = options.minLetterCount,
+        )
+        val image = recompose(result.cleanedImage, result.regions, batch.translations, settings)
+        return result.copy(
+            image = image,
+            translations = batch.translations,
+            warnings = (result.warnings + batch.warnings).distinct(),
+        )
+    }
+
     fun recompose(
         cleaned: ArgbImage,
         regions: List<TextRegion>,
