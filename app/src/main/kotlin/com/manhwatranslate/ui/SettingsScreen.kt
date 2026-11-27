@@ -142,9 +142,9 @@ internal fun SettingsContent(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { SectionTitle("Ngôn ngữ") }
+            item { SectionTitle("Ngôn ngữ", modifier = Modifier.animateItem()) }
             item {
-                GroupCard {
+                GroupCard(modifier = Modifier.animateItem()) {
                     DropdownRow(
                         title = "Chữ trên ảnh",
                         value = settings.sourceScript.displayLabel(),
@@ -161,9 +161,9 @@ internal fun SettingsContent(
                 }
             }
 
-            item { SectionTitle("Nhận diện chữ") }
+            item { SectionTitle("Nhận diện chữ", modifier = Modifier.animateItem()) }
             item {
-                GroupCard {
+                GroupCard(modifier = Modifier.animateItem()) {
                     Column(Modifier.selectableGroup()) {
                         OcrProviderType.entries.forEachIndexed { index, provider ->
                             if (index > 0) RowDivider()
@@ -213,9 +213,9 @@ internal fun SettingsContent(
                 }
             }
 
-            item { SectionTitle("Bộ dịch") }
+            item { SectionTitle("Bộ dịch", modifier = Modifier.animateItem()) }
             item {
-                GroupCard {
+                GroupCard(modifier = Modifier.animateItem()) {
                     Column(Modifier.selectableGroup()) {
                         TranslationProviderType.entries.forEachIndexed { index, provider ->
                             if (index > 0) RowDivider()
@@ -238,6 +238,7 @@ internal fun SettingsContent(
             if (settings.provider.requiresApiKey) {
                 item {
                     ApiKeyCard(
+                        modifier = Modifier.animateItem(),
                         settings = settings,
                         hasKey = settings.provider in configuredKeys,
                         currentKey = apiKeyFor(settings.provider),
@@ -256,9 +257,9 @@ internal fun SettingsContent(
                 }
             }
 
-            item { SectionTitle("Trình bày bản dịch") }
+            item { SectionTitle("Trình bày bản dịch", modifier = Modifier.animateItem()) }
             item {
-                GroupCard {
+                GroupCard(modifier = Modifier.animateItem()) {
                     DropdownRow(
                         title = "Phông chữ",
                         value = settings.fontMode.label(),
@@ -324,6 +325,7 @@ internal fun SettingsContent(
 
             item {
                 ExpandableGroup(
+                    modifier = Modifier.animateItem(),
                     title = "Tinh chỉnh",
                     subtitle = "Cỡ chữ, xoá chữ gốc, bộ lọc quét",
                     expanded = advancedOpen,
@@ -432,6 +434,7 @@ internal fun SettingsContent(
 
             item {
                 ExpandableGroup(
+                    modifier = Modifier.animateItem(),
                     title = "Về ứng dụng",
                     subtitle = "Phiên bản 1.0.0 · quyền riêng tư",
                     expanded = aboutOpen,
@@ -602,6 +605,7 @@ private fun LabeledBlock(title: String, content: @Composable ColumnScope.() -> U
 
 @Composable
 private fun ApiKeyCard(
+    modifier: Modifier = Modifier,
     settings: AppSettings,
     hasKey: Boolean,
     currentKey: String,
@@ -612,7 +616,7 @@ private fun ApiKeyCard(
     var key by remember(settings.provider, currentKey) { mutableStateOf(currentKey) }
     var visible by remember { mutableStateOf(false) }
 
-    GroupCard {
+    GroupCard(modifier = modifier) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

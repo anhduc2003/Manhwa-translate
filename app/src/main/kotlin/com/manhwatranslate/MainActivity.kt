@@ -40,6 +40,7 @@ import com.manhwatranslate.ui.SplashScreen
 import com.manhwatranslate.ui.WebReaderScreen
 import com.manhwatranslate.ui.WebReaderViewModel
 import com.manhwatranslate.ui.theme.ManhwaTranslateTheme
+import com.manhwatranslate.ui.theme.Motion
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -101,13 +102,23 @@ private fun AppRoot(
         NavHost(
             navController = navController,
             startDestination = "home",
+            // A shared-axis slide: the screen you leave drifts a fifth of the way and fades, the
+            // one you open comes in a sixth, both on the same decelerating curve. Reversed on back.
             enterTransition = {
-                fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 14 }
+                slideInHorizontally(tween(Motion.Screen, easing = Motion.Emphasized)) { it / 6 } +
+                    fadeIn(tween(Motion.Fast, easing = Motion.Standard))
             },
-            exitTransition = { fadeOut(tween(150)) },
-            popEnterTransition = { fadeIn(tween(220)) },
+            exitTransition = {
+                slideOutHorizontally(tween(Motion.Screen, easing = Motion.Emphasized)) { -it / 20 } +
+                    fadeOut(tween(Motion.Fast, easing = Motion.Standard))
+            },
+            popEnterTransition = {
+                slideInHorizontally(tween(Motion.Screen, easing = Motion.Emphasized)) { -it / 20 } +
+                    fadeIn(tween(Motion.Fast, easing = Motion.Standard))
+            },
             popExitTransition = {
-                fadeOut(tween(150)) + slideOutHorizontally(tween(280)) { it / 14 }
+                slideOutHorizontally(tween(Motion.Screen, easing = Motion.Emphasized)) { it / 6 } +
+                    fadeOut(tween(Motion.Fast, easing = Motion.Standard))
             },
         ) {
             composable("home") {
