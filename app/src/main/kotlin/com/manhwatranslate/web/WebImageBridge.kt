@@ -71,7 +71,9 @@ class WebImageBridge(
          * two at a time is what fits in a phone's heap. Downloads are cheap by comparison and run
          * ahead of it, so an image rarely waits for its bytes once a slot frees up.
          */
-        private const val MAX_PARALLEL = 2
+        private const val MAX_PARALLEL = 3
+        private const val MAX_SMALL_PARALLEL = 6
+        private const val LARGE_PAGE_PIXELS = 6_000_000
         private const val MAX_DOWNLOADS = 4
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 " +
@@ -89,7 +91,8 @@ class WebImageBridge(
     private val orderLock = Any()
     private val pending = AtomicInteger(0)
     private val completed = AtomicInteger(0)
-    private val countGate = Semaphore(MAX_PARALLEL)
+    private val smallGate = Semaphore(MAX_SMALL_PARALLEL)
+    private val largeGate = Semaphore(MAX_PARALLEL)
     private val downloadGate = Semaphore(MAX_DOWNLOADS)
 
     private val warnings = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
@@ -150,7 +153,8 @@ class WebImageBridge(
                 val bytes = download(image.src) ?: throw IOException("Máy chủ ảnh từ chối tải")
                 val budget = minOf(settingsProvider().maxPagePixels, MAX_IMAGE_PIXELS)
                 val plan = plan(bytes, budget) ?: throw IOException("Ảnh không đọc được")
-                countGate.acquire()
+                val gate = if (plan.pixels > LARGE_PAGE_PIXELS) largeGate else smallGate
+                gate.acquire()
                 try {
                     val page = decode(bytes, plan) ?: throw IOException("Ảnh không đọc được")
                     val clock = StageClock()
@@ -162,6 +166,12 @@ class WebImageBridge(
                     clock.finish()
                     result.warnings.forEach { warnings.add(it) }
                     describe(image, result)
+                    android.util.Log.d(
+                        "WebImageBridge",
+                        "ảnh ${image.index}: ${plan.pixels / 1000}K px, " +
+                            "xử lý ${clock.deviceNanos / 1_000_000}ms, " +
+                            "dịch ${clock.translateNanos / 1_000_000}ms",
+                    )
                     detectNanos.addAndGet(clock.deviceNanos)
                     translateNanos.addAndGet(clock.translateNanos)
                     val token = "${image.index}-${System.currentTimeMillis()}.jpg"
@@ -170,7 +180,7 @@ class WebImageBridge(
                     remember(token)
                     withContext(Dispatchers.Main) { onTranslated(image.index, token) }
                 } finally {
-                    countGate.release()
+                    gate.release()
                 }
             } catch (error: OutOfMemoryError) {
                 reports[image.index] = "ảnh quá lớn so với bộ nhớ máy"
