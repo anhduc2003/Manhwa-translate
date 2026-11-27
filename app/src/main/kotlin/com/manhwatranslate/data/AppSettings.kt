@@ -6,6 +6,7 @@ import com.manhwatranslate.core.layout.FontWeightLevel
 import com.manhwatranslate.core.scan.SfxSensitivity
 import com.manhwatranslate.core.model.SourceScript
 import com.manhwatranslate.core.model.TranslationLanguage
+import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.pipeline.PipelineOptions
 import com.manhwatranslate.core.render.RenderStyle
@@ -37,6 +38,9 @@ data class AppSettings(
     val maxLines: Int = 8,
     val boxExpansion: Float = 1.15f,
     val maxPagePixels: Int = 24_000_000,
+    val ocrProvider: OcrProviderType = OcrProviderType.ML_KIT,
+    val paddleOcrUrl: String = "http://192.168.1.10:8866",
+    val paddleOcrToken: String = "",
     val keepOriginalOnFailure: Boolean = true,
 ) {
     fun toRenderStyle(): RenderStyle = RenderStyle(

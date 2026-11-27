@@ -14,6 +14,7 @@ import com.manhwatranslate.core.model.TextLine
 import com.manhwatranslate.core.model.TextRegion
 import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.core.scan.ImageTile
+import com.manhwatranslate.core.scan.OcrGeometry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -42,7 +43,7 @@ class MlKitTextRecognizer : TileRecognizer {
     }
 
     override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
-        val scale = recognizeScale(tile.image.width)
+        val scale = recognizeScale(tile.image.width, tile.image.height)
         val bitmap = tile.image.toBitmap().let { original ->
             if (scale <= 1.01f) {
                 original
@@ -66,8 +67,8 @@ class MlKitTextRecognizer : TileRecognizer {
                     }
                 }.awaitAll()
             }
-            val scaled = perModel.map { model -> model.map { it.scaledDown(scale) } }
-            if (models.size == 1) scaled.first() else merge(scaled)
+            val mapped = perModel.map { model -> model.map { it.movedToPage(scale, tile) } }
+            if (models.size == 1) mapped.first() else merge(mapped)
         } finally {
             bitmap.recycle()
         }
@@ -77,18 +78,21 @@ class MlKitTextRecognizer : TileRecognizer {
      * Narrow webtoon pages carry lettering that ML Kit reads better a little larger, so tiles are
      * upscaled before recognition and the boxes are scaled back afterwards.
      */
-    private fun recognizeScale(tileWidth: Int): Float =
-        if (tileWidth >= 1400) 1f else (1400f / tileWidth.toFloat()).coerceIn(1f, 2f)
+    private fun recognizeScale(tileWidth: Int, tileHeight: Int): Float {
+        val byWidth = if (tileWidth >= 1400) 1f else (1400f / tileWidth.toFloat()).coerceIn(1f, 2f)
+        val pixels = (tileWidth.toFloat() * tileHeight.toFloat()).coerceAtLeast(1f)
+        val byMemory = kotlin.math.sqrt(RECOGNIZE_PIXEL_BUDGET / pixels).coerceIn(1f, 2f)
+        return minOf(byWidth, byMemory)
+    }
 
-    private fun TextRegion.scaledDown(scale: Float): TextRegion {
-        if (scale <= 1.01f) return this
-        fun down(box: RectI) = RectI(
-            (box.left / scale).toInt(),
-            (box.top / scale).toInt(),
-            (box.right / scale).toInt(),
-            (box.bottom / scale).toInt(),
-        )
-        return copy(box = down(box), lines = lines.map { it.copy(box = down(it.box)) })
+    private companion object {
+        /** Upscaling helps small lettering but a tile must still fit comfortably in memory. */
+        const val RECOGNIZE_PIXEL_BUDGET = 4_000_000f
+    }
+
+    private fun TextRegion.movedToPage(scale: Float, tile: ImageTile): TextRegion {
+        fun toPage(box: RectI) = OcrGeometry.toPage(box, scale, tile.rect.left, tile.rect.top)
+        return copy(box = toPage(box), lines = lines.map { it.copy(box = toPage(it.box)) })
     }
 
     private suspend fun recognizeWith(
@@ -103,14 +107,11 @@ class MlKitTextRecognizer : TileRecognizer {
             if (block.text.isBlank()) continue
             val lines = block.lines.mapNotNull { line ->
                 val box = line.boundingBox ?: return@mapNotNull null
-                TextLine(
-                    box = RectI(box.left, box.top, box.right, box.bottom).translated(tile.rect.left, tile.rect.top),
-                    text = line.text,
-                )
+                TextLine(box = RectI(box.left, box.top, box.right, box.bottom), text = line.text)
             }.filter { it.text.isNotBlank() }
             if (lines.isEmpty()) continue
             val box = block.boundingBox?.let {
-                RectI(it.left, it.top, it.right, it.bottom).translated(tile.rect.left, tile.rect.top)
+                RectI(it.left, it.top, it.right, it.bottom)
             } ?: lines.map { it.box }.reduce { acc, rect -> acc.union(rect) }
             regions += TextRegion(
                 id = index,

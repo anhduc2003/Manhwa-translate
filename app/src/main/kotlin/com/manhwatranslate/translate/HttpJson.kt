@@ -32,6 +32,17 @@ internal object HttpJson {
         body: String,
         headers: Map<String, String> = emptyMap(),
     ): JsonObject = withContext(Dispatchers.IO) {
+        val raw = postRaw(url, body, headers)
+        runCatching { json.parseToJsonElement(raw).jsonObject }
+            .getOrElse { throw TranslationException("Phản hồi không phải JSON hợp lệ") }
+    }
+
+    /** Raw body, for services whose answer is a bare list. */
+    suspend fun postRaw(
+        url: String,
+        body: String,
+        headers: Map<String, String> = emptyMap(),
+    ): String = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
             .url(url)
             .post(body.toRequestBody(jsonMedia))
@@ -46,8 +57,7 @@ internal object HttpJson {
             if (!result.isSuccessful) {
                 throw TranslationException(messageFor(result.code, raw))
             }
-            runCatching { json.parseToJsonElement(raw).jsonObject }
-                .getOrElse { throw TranslationException("Phản hồi không phải JSON hợp lệ") }
+            raw
         }
     }
 

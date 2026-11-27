@@ -17,7 +17,10 @@ import com.manhwatranslate.translate.GeminiTranslationProvider
 import com.manhwatranslate.translate.GoogleCloudTranslationProvider
 import com.manhwatranslate.translate.MlKitTranslationProvider
 import com.manhwatranslate.translate.OpenAiTranslationProvider
+import com.manhwatranslate.core.model.OcrProviderType
+import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.vision.MlKitTextRecognizer
+import com.manhwatranslate.vision.PaddleOcrRecognizer
 
 class AppContainer(context: Context) {
 
@@ -30,11 +33,19 @@ class AppContainer(context: Context) {
     val fontStore = FontStore(appContext)
     val measurer = AndroidTextMeasurer().apply { setCustomTypeface(fontStore.loadTypeface()) }
     val compositor = CanvasPageCompositor(measurer)
-    val recognizer = MlKitTextRecognizer()
+    val mlKitRecognizer = MlKitTextRecognizer()
+
+    fun recognizerFor(settings: AppSettings): TileRecognizer = when (settings.ocrProvider) {
+        OcrProviderType.ML_KIT -> mlKitRecognizer
+        OcrProviderType.PADDLE_OCR -> PaddleOcrRecognizer(
+            serverUrl = settings.paddleOcrUrl,
+            token = settings.paddleOcrToken,
+        )
+    }
     val onDeviceTranslator = MlKitTranslationProvider()
 
     val engine = TranslationEngine(
-        recognizer = recognizer,
+        recognizerResolver = { settings -> recognizerFor(settings) },
         measurer = measurer,
         compositor = compositor,
         providerResolver = { settings -> providerFor(settings) },

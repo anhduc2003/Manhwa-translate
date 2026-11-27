@@ -76,6 +76,19 @@ class SettingsViewModel(
         }
     }
 
+    fun testOcrServer() {
+        val settings = _state.value.settings
+        viewModelScope.launch {
+            _state.value = _state.value.copy(message = "Đang hỏi server PaddleOCR…")
+            val outcome = runCatching {
+                com.manhwatranslate.vision.PaddleOcrRecognizer.probe(settings.paddleOcrUrl)
+            }
+            _state.value = _state.value.copy(
+                message = outcome.getOrElse { error -> error.message ?: error.javaClass.simpleName },
+            )
+        }
+    }
+
     fun importFont(uri: Uri) {
         viewModelScope.launch {
             runCatching { container.fontStore.import(uri) }

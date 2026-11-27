@@ -6,6 +6,7 @@ import com.manhwatranslate.core.model.PipelineProgress
 import com.manhwatranslate.core.model.RegionTranslation
 import com.manhwatranslate.core.model.TextRegion
 import com.manhwatranslate.core.pipeline.PipelineOptions
+import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.core.pipeline.TranslationPipeline
 import com.manhwatranslate.core.render.PageCompositor
 import com.manhwatranslate.core.scan.ImageTiler
@@ -13,14 +14,13 @@ import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.core.translate.TranslationService
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.render.AndroidTextMeasurer
-import com.manhwatranslate.vision.MlKitTextRecognizer
 
 /**
  * Wires the platform pieces (ML Kit OCR, a translation backend, Android text drawing) into the
  * core pipeline.
  */
 class TranslationEngine(
-    private val recognizer: MlKitTextRecognizer,
+    private val recognizerResolver: (AppSettings) -> TileRecognizer,
     private val measurer: AndroidTextMeasurer,
     private val compositor: PageCompositor,
     private val providerResolver: (AppSettings) -> TranslationProvider,
@@ -32,7 +32,7 @@ class TranslationEngine(
         onProgress: (PipelineProgress) -> Unit = {},
     ): PageProcessingResult {
         val pipeline = TranslationPipeline(
-            recognizer = recognizer,
+            recognizer = recognizerResolver(settings),
             translationService = TranslationService(providerResolver(settings)),
             measurer = measurer,
             compositor = compositor,
@@ -51,7 +51,7 @@ class TranslationEngine(
         options: PipelineOptions = settings.toPipelineOptions(),
     ): ArgbImage {
         val pipeline = TranslationPipeline(
-            recognizer = recognizer,
+            recognizer = recognizerResolver(settings),
             translationService = TranslationService(providerResolver(settings)),
             measurer = measurer,
             compositor = compositor,

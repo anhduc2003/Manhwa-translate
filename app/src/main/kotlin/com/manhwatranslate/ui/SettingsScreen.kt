@@ -69,6 +69,7 @@ import com.manhwatranslate.core.layout.FontWeightLevel
 import com.manhwatranslate.core.model.SourceScript
 import com.manhwatranslate.core.scan.SfxSensitivity
 import com.manhwatranslate.core.model.TranslationLanguage
+import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.ui.components.Divider
 import com.manhwatranslate.ui.components.SectionHeader
@@ -137,6 +138,59 @@ fun SettingsScreen(
                         options = TranslationLanguage.entries.map { it to it.label },
                         onSelect = { language -> viewModel.update { it.copy(target = language) } },
                     )
+                }
+            }
+
+            item { SectionHeader("Nhận diện chữ", modifier = Modifier.padding(top = 8.dp)) }
+            item {
+                SettingsCard(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    OcrProviderType.entries.forEach { provider ->
+                        OcrProviderRow(
+                            provider = provider,
+                            selected = settings.ocrProvider == provider,
+                            onSelect = { viewModel.update { it.copy(ocrProvider = provider) } },
+                        )
+                    }
+                }
+            }
+
+            if (settings.ocrProvider == OcrProviderType.PADDLE_OCR) {
+                item {
+                    SettingsCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Text(
+                            text = "Server PaddleOCR",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "Chạy bằng Docker: paddlepaddle/paddleocr, rồi nhập địa chỉ tại đây. " +
+                                "App gửi từng dải ảnh và nhận khung chữ về.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 10.dp),
+                        )
+                        OutlinedTextField(
+                            value = settings.paddleOcrUrl,
+                            onValueChange = { value -> viewModel.update { it.copy(paddleOcrUrl = value) } },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Địa chỉ server") },
+                            placeholder = { Text("http://192.168.1.10:8866") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = settings.paddleOcrToken,
+                            onValueChange = { value -> viewModel.update { it.copy(paddleOcrToken = value) } },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Token (nếu server yêu cầu)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { viewModel.testOcrServer() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Kiểm tra server")
+                        }
+                    }
                 }
             }
 
@@ -363,6 +417,32 @@ fun SettingsScreen(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun OcrProviderRow(
+    provider: OcrProviderType,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Spacer(Modifier.width(4.dp))
+        Column(Modifier.weight(1f)) {
+            Text(text = provider.label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = provider.hint,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

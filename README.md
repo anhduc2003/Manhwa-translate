@@ -10,6 +10,11 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 
 ## Tính năng
 
+- **Hai bộ nhận diện chữ**: ML Kit trên máy (mặc định) hoặc **PaddleOCR qua server** — chọn trong
+  Cài đặt → Nhận diện chữ, nhập địa chỉ server Hub Serving tự chạy:
+  `docker run -p 8866:8866 paddlepaddle/paddleocr` (hoặc `paddleocr serving --port 8866`).
+  App gửi từng dải ảnh dạng base64, nhận `text_region` + `text` + `confidence` rồi đổi toạ độ về
+  trang gốc; PaddleOCR bắt chữ trên nền có hình tốt hơn ML Kit.
 - **Nhận diện chữ** bằng ML Kit (Latinh, Hàn, Trung, Nhật). Chế độ *Tự động* chạy cả bốn mô
   hình rồi chọn kết quả hợp lý nhất cho từng bong bóng. Trang hẹp được phóng to trước khi nhận
   diện (rồi thu hộp chữ về đúng tỉ lệ) để bắt được chữ nhỏ.
