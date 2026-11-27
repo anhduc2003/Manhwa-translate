@@ -26,7 +26,7 @@ class TextMaskBuilder(
         val strongDistanceFactor: Float = 2.5f,
         val localTolerance: Float = 24f,
         val closingRadius: Int = 2,
-        val dilation: Int = 2,
+        val dilation: Int = 3,
         val minCoverage: Float = 0.004f,
         val fitSurface: Boolean = true,
     )

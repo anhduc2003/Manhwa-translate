@@ -11,6 +11,10 @@ data class LayoutStyle(
     val maxLines: Int = 8,
     val minTextSizeRatio: Float = 0.55f,
     val font: FontSpec = FontSpec.Default,
+    /** Outline drawn around the letters, reserved on both sides so nothing spills out of the box. */
+    val strokeWidthFactor: Float = 0f,
+    /** Line count of the original lettering; the translation aims for the same shape. */
+    val preferredLines: Int = 0,
 )
 
 /**
@@ -66,18 +70,43 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
         }
 
         val hardFloor = maxOf(4f, style.minTextSizePx * style.minTextSizeRatio)
-        var size = style.maxTextSizePx
-        var lines = wrap(normalized, size, availableWidth, font)
-        while (size > hardFloor) {
-            val lineHeight = measurer.lineHeight(size, font)
-            val height = lineHeight * style.lineSpacing * lines.size
-            if (lines.size <= style.maxLines && height <= availableHeight) break
-            size -= 1f
-            lines = wrap(normalized, size, availableWidth, font)
+        val absoluteFloor = 6f
+        val shapeLimit = if (style.preferredLines > 0) {
+            minOf(style.maxLines, style.preferredLines + 1)
+        } else {
+            style.maxLines
         }
+
+        var size = style.maxTextSizePx
+        var lines = wrap(normalized, size, lineWidth(size, availableWidth, style), font)
+        var fits = false
+
+        while (true) {
+            val height = measurer.lineHeight(size, font) * style.lineSpacing * lines.size
+            if (lines.size <= shapeLimit && height <= availableHeight) {
+                fits = true
+                break
+            }
+            if (size <= hardFloor) break
+            size -= 1f
+            lines = wrap(normalized, size, lineWidth(size, availableWidth, style), font)
+        }
+
+        if (!fits) {
+            size = hardFloor
+            while (true) {
+                lines = wrap(normalized, size, lineWidth(size, availableWidth, style), font)
+                val height = measurer.lineHeight(size, font) * style.lineSpacing * lines.size
+                if ((lines.size <= style.maxLines && height <= availableHeight) || size <= absoluteFloor) {
+                    fits = lines.size <= style.maxLines && height <= availableHeight
+                    break
+                }
+                size -= 1f
+            }
+        }
+
         val lineHeight = measurer.lineHeight(size, font)
         val blockHeight = lineHeight * style.lineSpacing * lines.size
-        val fits = lines.size <= style.maxLines && blockHeight <= availableHeight * 1.02f
         return TextLayout(
             lines = lines,
             textSizePx = size,
@@ -89,6 +118,10 @@ class TextLayoutEngine(private val measurer: TextMeasurer) {
             fits = fits,
         )
     }
+
+    /** Wrapping width for one size, leaving room for the outline that will be drawn later. */
+    private fun lineWidth(sizePx: Float, availableWidth: Float, style: LayoutStyle): Float =
+        (availableWidth - sizePx * style.strokeWidthFactor * 2f).coerceAtLeast(4f)
 
     fun wrap(text: String, sizePx: Float, maxWidth: Float, font: FontSpec = FontSpec.Default): List<String> {
         if (text.isEmpty()) return emptyList()

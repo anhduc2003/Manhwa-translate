@@ -25,6 +25,7 @@ import com.manhwatranslate.core.render.RenderItem
 import com.manhwatranslate.core.render.RenderStyle
 import com.manhwatranslate.core.scan.ImageTiler
 import com.manhwatranslate.core.scan.ImageTile
+import com.manhwatranslate.core.scan.RegionGrouper
 import com.manhwatranslate.core.scan.RegionMerger
 import com.manhwatranslate.core.scan.SfxFilter
 import com.manhwatranslate.core.scan.SfxSensitivity
@@ -62,6 +63,7 @@ class TranslationPipeline(
     private val compositor: PageCompositor,
     private val maskBuilder: TextMaskBuilder = TextMaskBuilder(),
     private val mergerOptions: RegionMerger.Options = RegionMerger.Options(),
+    private val grouperOptions: RegionGrouper.Options = RegionGrouper.Options(),
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
 
@@ -172,6 +174,8 @@ class TranslationPipeline(
             lineSpacing = style.lineSpacing,
             maxLines = style.maxLines,
             font = font,
+            strokeWidthFactor = if (style.strokeWidthFactor > 0f) style.strokeWidthFactor else 0f,
+            preferredLines = region.lines.size,
         )
         return layoutEngine.layout(text, targetBox, layoutStyle)
     }
@@ -229,14 +233,15 @@ class TranslationPipeline(
             }
         }
         val refined = RegionMerger.refine(raw, mergerOptions)
+        val grouped = RegionGrouper.group(page, refined, grouperOptions)
         onProgress(
             PipelineProgress.of(
                 PipelineStage.DETECTING,
                 0.47f,
-                "Tìm thấy ${refined.size} vùng chữ",
+                "Tìm thấy ${grouped.size} vùng chữ",
             ),
         )
-        return refined
+        return grouped
     }
 
     private fun prepare(

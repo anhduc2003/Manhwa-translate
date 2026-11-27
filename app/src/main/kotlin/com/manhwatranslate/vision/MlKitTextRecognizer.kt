@@ -42,7 +42,19 @@ class MlKitTextRecognizer : TileRecognizer {
     }
 
     override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
-        val bitmap = tile.image.toBitmap()
+        val scale = recognizeScale(tile.image.width)
+        val bitmap = tile.image.toBitmap().let { original ->
+            if (scale <= 1.01f) {
+                original
+            } else {
+                Bitmap.createScaledBitmap(
+                    original,
+                    (original.width * scale).toInt(),
+                    (original.height * scale).toInt(),
+                    true,
+                ).also { original.recycle() }
+            }
+        }
         return try {
             val models = if (script.isAuto) listOf(SourceScript.LATIN, SourceScript.KOREAN, SourceScript.CHINESE, SourceScript.JAPANESE)
             else listOf(script)
@@ -54,10 +66,29 @@ class MlKitTextRecognizer : TileRecognizer {
                     }
                 }.awaitAll()
             }
-            if (models.size == 1) perModel.first() else merge(perModel)
+            val scaled = perModel.map { model -> model.map { it.scaledDown(scale) } }
+            if (models.size == 1) scaled.first() else merge(scaled)
         } finally {
             bitmap.recycle()
         }
+    }
+
+    /**
+     * Narrow webtoon pages carry lettering that ML Kit reads better a little larger, so tiles are
+     * upscaled before recognition and the boxes are scaled back afterwards.
+     */
+    private fun recognizeScale(tileWidth: Int): Float =
+        if (tileWidth >= 1400) 1f else (1400f / tileWidth.toFloat()).coerceIn(1f, 2f)
+
+    private fun TextRegion.scaledDown(scale: Float): TextRegion {
+        if (scale <= 1.01f) return this
+        fun down(box: RectI) = RectI(
+            (box.left / scale).toInt(),
+            (box.top / scale).toInt(),
+            (box.right / scale).toInt(),
+            (box.bottom / scale).toInt(),
+        )
+        return copy(box = down(box), lines = lines.map { it.copy(box = down(it.box)) })
     }
 
     private suspend fun recognizeWith(

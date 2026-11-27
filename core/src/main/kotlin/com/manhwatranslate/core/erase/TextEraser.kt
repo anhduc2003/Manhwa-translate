@@ -17,6 +17,8 @@ data class EraseOptions(
     val solidContrastThreshold: Float = 6f,
     val diffusionPasses: Int = 2,
     val matchBackground: Boolean = true,
+    /** After the fill, keeps going over ink the mask missed right next to it. */
+    val removeResidualInk: Boolean = true,
 )
 
 data class EraseStats(
@@ -50,10 +52,12 @@ class TextEraser(
                     erased++
                 }
                 if (options.matchBackground && surface != null) applySeamCorrection(target, mask, surface)
+                if (options.removeResidualInk) erased += eraseResidualInk(target, mask)
             }
             EraseMode.DIFFUSION -> {
                 erased = diffuse(target, mask)
                 smoothInsideMask(target, mask, passes = maxOf(1, options.diffusionPasses))
+                if (options.removeResidualInk) erased += eraseResidualInk(target, mask)
             }
             EraseMode.AUTO -> Unit
         }
@@ -150,6 +154,41 @@ class TextEraser(
             val blue = (Colors.blue(pixel) + deltaB[index]).toInt().coerceIn(0, 255)
             pixels[pageIndex] = Colors.pack(Colors.alpha(pixel), red, green, blue)
         }
+    }
+
+    /**
+     * Anti-aliased rims and letters whose box was drawn a little short leave a grey ghost behind.
+     * Anything still much closer to the letter colour than to the reconstructed paper, and close
+     * to what was just erased, gets the paper colour too; artwork of another colour is untouched.
+     */
+    private fun eraseResidualInk(target: ArgbImage, mask: TextMask): Int {
+        val surface = mask.surface ?: return 0
+        val width = mask.width
+        val height = mask.height
+        val pageWidth = target.width
+        val pixels = target.pixels
+        val quietPaper = mask.backgroundContrast < 6f
+        var painted = 0
+        repeat(2) { pass ->
+            var changed = 0
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    if (mask.data[y * width + x].toInt() != 0) continue
+                    if (!quietPaper && !nearMask(mask, x, y, width, height)) continue
+                    val pageIndex = (mask.top + y) * pageWidth + mask.left + x
+                    val pixel = pixels[pageIndex]
+                    val paper = surface.argbAt(x, y)
+                    val paperDistance = Colors.distance(pixel, paper)
+                    if (paperDistance <= 24f) continue
+                    if (Colors.distance(pixel, mask.inkArgb) >= paperDistance) continue
+                    pixels[pageIndex] = paper
+                    changed++
+                }
+            }
+            painted += changed
+            if (changed == 0 || pass == 1) return painted
+        }
+        return painted
     }
 
     private fun nearMask(mask: TextMask, x: Int, y: Int, width: Int, height: Int): Boolean {

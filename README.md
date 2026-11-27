@@ -11,21 +11,30 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
 ## Tính năng
 
 - **Nhận diện chữ** bằng ML Kit (Latinh, Hàn, Trung, Nhật). Chế độ *Tự động* chạy cả bốn mô
-  hình rồi chọn kết quả hợp lý nhất cho từng bong bóng.
+  hình rồi chọn kết quả hợp lý nhất cho từng bong bóng. Trang hẹp được phóng to trước khi nhận
+  diện (rồi thu hộp chữ về đúng tỉ lệ) để bắt được chữ nhỏ.
 - **Xoá chữ gốc** bằng thuật toán inpaint riêng: ước lượng màu giấy từ viền khung chữ và màu mực
   từ các pixel xa giấy nhất, dựng mask theo màu nền + tương phản cục bộ, đóng hình thái để lấp nét
   đứt. Nền được mô hình bằng một mặt bậc hai (khớp gradient và vệt sáng tối), tô phẳng khi bong
   bóng trơn, lan màu từ pixel kề khi nền có vân, rồi hiệu chỉnh đường may để hoà vào vân giấy.
   Chế độ *Tự động* đo độ rối của giấy để chọn giữa hai cách.
-- **Lọc chữ hiệu ứng**: vùng một từ, chữ quá lớn, hoặc nằm trên hình vẽ bị bỏ qua thay vì xoá lem.
+- **Gộp lại một bong bóng**: OCR hay trả một bong bóng thành nhiều khối (dòng trên ngắn, dòng dưới
+  dài, tên nhân vật chen trong caption). Các khối nằm sát nhau, chồng nhau theo chiều ngang và
+  cách nhau bằng giấy trơn được gộp thành một vùng trước khi dịch, nên cả bong bóng dùng chung một
+  cỡ chữ và bản dịch có đủ ngữ cảnh.
+- **Lọc chữ hiệu ứng**: vùng một từ, chữ quá lớn, hoặc nằm trên hình vẽ bị bỏ qua thay vì xoá lem —
+  trừ khi đó là cả một câu thoại (từ 3 từ và 12 ký tự trở lên) vẽ tay trên hình, những vùng đó vẫn
+  được dịch.
 - **Bám kiểu chữ gốc**: ước lượng in đậm, in nghiêng, chữ hoa, bề rộng chữ (condensed) và cỡ chữ
   từ chiều cao dòng gốc; hỗ trợ nhập font TTF riêng trong Cài đặt.
 - **Dịch** qua 5 nhà cung cấp: ML Kit trên máy (miễn phí, offline), Google Cloud Translation,
   DeepL, Gemini, và mọi endpoint kiểu OpenAI (OpenAI, DeepSeek, Groq, OpenRouter, server nội bộ).
   Nhà cung cấp kiểu LLM dịch cả trang trong một lượt để giữ ngữ cảnh, có đánh số `[[n]]` để ghép
   lại chính xác.
-- **Vẽ bản dịch**: chữ tự co giãn để vừa khung chữ gốc, tự xuống dòng theo từ (hoặc theo từng ký
-  tự với tiếng Trung/Nhật), tự chọn màu chữ sáng/tối theo nền bong bóng, có viền và bóng đổ.
+- **Vẽ bản dịch**: mỗi vùng dùng đúng một cỡ chữ, chọn cỡ lớn nhất mà cả khối vẫn nằm trong khung
+  gốc — kể cả phần viền chữ, và ưu tiên số dòng giống bản gốc nên bản dịch không bị vỡ thành cột chữ
+  nhỏ. Tự xuống dòng theo từ (hoặc từng ký tự với tiếng Trung/Nhật), tự chọn màu chữ sáng/tối theo
+  nền, có viền và bóng đổ.
 - **Ảnh webtoon dài**: trang được cắt thành các dải chồng lấn để OCR, sau đó ghép lại và khử trùng
   lặp vùng chữ ở mép dải.
 - **Sửa bản dịch**: chạm vào khung chữ để sửa tay hoặc dịch lại riêng vùng đó; mọi thay đổi được
@@ -97,9 +106,13 @@ app, đo độ lệch chuẩn trong từng khung chữ trước và sau khi xoá
 
 | Trang | Vùng chữ | Xử lý | Bỏ qua (hiệu ứng) | Lệch chuẩn trước → sau | Vùng phẳng hẳn | Pixel đổi ngoài khung | Thời gian |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| page_scan (chụp, nền có vân) | 68 | 53 | 8 | 78.0 → 4.7 | 52/53 | 0 | 1.4 s |
-| page_bw (đen trắng dài) | 23 | 20 | 1 | 87.8 → 4.4 | 20/20 | 0 | 0.8 s |
+| page_scan (chụp, nền có vân) | 68 | 53 | 8 | 78.0 → 4.2 | 53/53 | 0 | 1.5 s |
+| page_bw (đen trắng dài) | 23 | 20 | 1 | 87.8 → 4.3 | 20/20 | 0 | 0.8 s |
 | page_color (màu) | 10 | 8 | 0 | 92.0 → 3.9 | 8/8 | 0 | 0.6 s |
+
+Cùng lượt chạy đo thêm hai thứ: mực chữ còn sót trong các khung (162 844 → 778 pixel ở trang chụp,
+102 114 → 102 ở trang đen trắng, 24 349 → 0 ở trang màu) và số vùng có chữ vẽ tràn ra ngoài khung
+(0/53, 0/20, 0/8).
 
 "Pixel đổi ngoài khung" = số pixel bị sửa nằm ngoài mọi hộp chữ đã nhận — bằng 0 nghĩa là thuật
 toán không đụng tới phần hình vẽ còn lại của trang.

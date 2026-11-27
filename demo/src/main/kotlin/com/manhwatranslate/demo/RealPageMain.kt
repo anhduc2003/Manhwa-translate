@@ -75,10 +75,27 @@ fun main(args: Array<String>) {
     val medianAfter = stats.map { it.second }.sorted().let { if (it.isEmpty()) 0f else it[it.size / 2] }
     val collapsed = stats.count { it.second < it.first * 0.5f }
     val outside = changedOutside(source, result.cleanedImage, result.regions)
+    val inkPerRegion = result.regions.map { region ->
+        val box = region.box.clamped(source.width, source.height) ?: return@map 0 to 0
+        inkPixels(source, box) to inkPixels(result.cleanedImage, box)
+    }
+    val inkBefore = inkPerRegion.sumOf { it.first }
+    val inkAfter = inkPerRegion.sumOf { it.second }
     println("Vùng xử lý: ${result.regions.size}, bỏ qua SFX: ${result.skipped.size}")
     println("Độ lệch chuẩn trong khung chữ: trước ${"%.1f".format(medianBefore)} -> sau ${"%.1f".format(medianAfter)}")
     println("Số vùng có nền phẳng hơn 50%% sau khi xoá: $collapsed/${stats.size}")
     println("Pixel bị đổi ngoài mọi khung chữ: $outside")
+    println("Mực chữ trong các khung (pixel lệch nền > 60): $inkBefore -> $inkAfter")
+    println("Số pixel mực còn sót trên mỗi khung, cao nhất: " +
+        inkPerRegion.maxByOrNull { it.second }?.let { "trước ${it.first} -> sau ${it.second}" })
+    val overflows = result.regions.count { region ->
+        val translation = result.translations.firstOrNull { it.regionId == region.id } ?: return@count false
+        val layout = pipeline.layoutFor(region, translation.translatedText, options)
+        val widest = layout.lines.maxOfOrNull { measurer.measureWidth(it, layout.textSizePx, layout.font) } ?: 0f
+        val stroke = layout.textSizePx * options.render.strokeWidthFactor * 2f
+        widest + stroke > layout.box.width || layout.blockHeightPx > layout.box.height
+    }
+    println("Vùng có chữ tràn khỏi khung: $overflows/${result.regions.size}")
     println("Thời gian: ${elapsed}ms")
     println()
     println("Vùng chưa phẳng hẳn:")
@@ -103,6 +120,18 @@ fun main(args: Array<String>) {
 }
 
 private val SFX_LEVEL = SfxSensitivity.MEDIUM
+
+/** Pixels that stand out from the box's own background, so letters count on light and dark bubbles alike. */
+private fun inkPixels(image: ArgbImage, box: RectI): Int {
+    val values = ArrayList<Float>()
+    for (y in box.top until box.bottom) {
+        for (x in box.left until box.right) values.add(Colors.luminance(image.get(x, y)))
+    }
+    if (values.isEmpty()) return 0
+    values.sort()
+    val background = values[values.size / 2]
+    return values.count { kotlin.math.abs(it - background) > 60f }
+}
 
 private fun luminanceStd(image: ArgbImage, box: RectI): Float {
     var sum = 0.0

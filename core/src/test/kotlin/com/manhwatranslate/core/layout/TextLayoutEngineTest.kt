@@ -108,4 +108,42 @@ class TextLayoutEngineTest {
         assertTrue(layout.baselineFor(0) > box.top)
         assertTrue(layout.baselineFor(layout.lines.lastIndex) < box.bottom)
     }
+
+    @Test
+    fun `a long translation never spills out of a small box`() {
+        val layout = engine.layout(
+            "Tôi đã không nghĩ rằng bước bước trên phanh trong giữa nói chuyện lại kết thúc như thế này",
+            RectI(0, 0, 190, 90),
+            LayoutStyle(maxTextSizePx = 34f, minTextSizePx = 11f, preferredLines = 2),
+        )
+        assertTrue(layout.fits, "layout should fit, size ${layout.textSizePx} lines ${layout.lines.size}")
+        assertTrue(layout.blockHeightPx <= 90f, "block ${layout.blockHeightPx} exceeds the box")
+        for (line in layout.lines) {
+            assertTrue(
+                measurer.measureWidth(line, layout.textSizePx, layout.font) <= layout.box.width,
+                "line '$line' is wider than the box",
+            )
+        }
+    }
+
+    @Test
+    fun `the shape of the original lettering is respected`() {
+        val text = "Tôi đã không nghĩ rằng bước bước trên phanh trong."
+        val wide = engine.layout(text, RectI(0, 0, 420, 120), LayoutStyle(maxTextSizePx = 40f, preferredLines = 2))
+        val tall = engine.layout(text, RectI(0, 0, 420, 240), LayoutStyle(maxTextSizePx = 40f, preferredLines = 4))
+        assertTrue(wide.lines.size <= 3, "two original lines gave ${wide.lines.size} lines")
+        assertTrue(wide.textSizePx >= tall.textSizePx * 0.5f)
+    }
+
+    @Test
+    fun `the outline is reserved so stroked text stays inside`() {
+        val text = "Ngươi nghĩ mình có thể chạy thoát khỏi ta sao"
+        val layout = engine.layout(
+            text,
+            RectI(0, 0, 240, 100),
+            LayoutStyle(maxTextSizePx = 32f, strokeWidthFactor = 0.09f),
+        )
+        val widest = layout.lines.maxOf { measurer.measureWidth(it, layout.textSizePx, layout.font) }
+        assertTrue(widest + layout.textSizePx * 0.09f * 2f <= layout.box.width, "outline spills past the box")
+    }
 }

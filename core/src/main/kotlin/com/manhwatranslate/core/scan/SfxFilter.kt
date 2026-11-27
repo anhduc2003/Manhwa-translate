@@ -77,6 +77,11 @@ object SfxFilter {
             reasons += "một từ đơn"
         }
 
+        val words = region.text.split(' ').count { word -> word.any { it.isLetter() } }
+        if (words >= 3 && letters >= 12) {
+            reasons += "câu thoại, không phải hiệu ứng"
+            return SfxAnalysis(false, 0, reasons)
+        }
         return SfxAnalysis(score >= sensitivity.threshold, score, reasons)
     }
 

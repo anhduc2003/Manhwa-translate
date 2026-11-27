@@ -100,4 +100,25 @@ class SfxFilterTest {
         val analysis = SfxFilter.analyze(image, region, image.width, SfxSensitivity.MEDIUM)
         assertFalse(analysis.isSoundEffect, "score ${analysis.score} ${analysis.reasons}")
     }
+
+    @Test
+    fun `a sentence hand lettered on artwork is dialogue, not a sound effect`() {
+        val image = ArgbImage.filled(900, 700, Colors.opaque(150, 170, 200))
+        val random = java.util.Random(3)
+        for (y in 0 until image.height) {
+            for (x in 0 until image.width) {
+                val shade = 110 + random.nextInt(90)
+                image.set(x, y, Colors.opaque(shade, shade, shade))
+            }
+        }
+        val box = RectI(120, 200, 520, 260)
+        val region = TextRegion(
+            id = 4,
+            box = box,
+            lines = listOf(TextLine(box, "Your drunk habit isn't nice.")),
+            text = "Your drunk habit isn't nice.",
+        )
+        val analysis = SfxFilter.analyze(image, region, image.width, SfxSensitivity.MEDIUM)
+        assertFalse(analysis.isSoundEffect, "score ${analysis.score} ${analysis.reasons}")
+    }
 }
