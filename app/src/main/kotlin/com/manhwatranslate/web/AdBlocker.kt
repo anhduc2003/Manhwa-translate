@@ -28,11 +28,20 @@ class AdBlocker(private val assetReader: (String) -> String?) {
         const val ID_EASYPRIVACY = "easyprivacy"
         const val ID_PETER_LOWE = "peterlowe"
 
-        /** Reads the bundled lists straight from the APK's assets. */
+        /** Reads the bundled lists straight from the APK's assets, gzipped or not. */
         fun fromAssets(context: Context): AdBlocker = AdBlocker { path ->
             runCatching {
                 context.assets.open(path).use { stream ->
-                    GZIPInputStream(stream).bufferedReader(Charsets.UTF_8).readText()
+                    val buffered = stream.buffered()
+                    buffered.mark(2)
+                    val magic = ByteArray(2)
+                    val read = buffered.read(magic)
+                    buffered.reset()
+                    if (read == 2 && magic[0] == 0x1f.toByte() && magic[1] == 0x8b.toByte()) {
+                        GZIPInputStream(buffered).bufferedReader(Charsets.UTF_8).readText()
+                    } else {
+                        buffered.reader(Charsets.UTF_8).readText()
+                    }
                 }
             }.getOrNull()
         }
@@ -109,8 +118,8 @@ class AdBlocker(private val assetReader: (String) -> String?) {
     }
 
     private fun loadList(id: String) {
-        val domains = assetReader("filters/$id.domains.gz") ?: return
-        val selectors = assetReader("filters/$id.selectors.gz")
+        val domains = assetReader("filters/$id.domains.bin") ?: return
+        val selectors = assetReader("filters/$id.selectors.bin")
         val (plain, scoped) = if (selectors == null) {
             emptyList<String>() to emptyList<FilterSet.ScopedSelector>()
         } else {

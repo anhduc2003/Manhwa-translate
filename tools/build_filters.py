@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Distils open-source ad/tracker filter lists into the compact assets the app ships.
 
+The output keeps gzip bytes under a .bin name: aapt decompresses anything ending in .gz at
+build time, which would put the full text into the APK instead of the compressed form.
+
 Inputs (download once, not committed): easylist.txt, easyprivacy.txt, peterlowe hosts.
 Output: app/src/main/assets/filters/<source>.domains.gz + <source>.selectors.gz
 """
@@ -78,11 +81,11 @@ def write(name, domains, selectors, scoped):
     OUT.mkdir(parents=True, exist_ok=True)
     allowed = sorted(d for d in domains if d)
     if allowed:
-        with gzip.open(OUT / f"{name}.domains.gz", "wt", encoding="utf-8") as handle:
+        with gzip.open(OUT / f"{name}.domains.bin", "wt", encoding="utf-8") as handle:
             handle.write("\n".join(allowed))
     merged = sorted(selectors) + sorted(scoped)
     if merged:
-        with gzip.open(OUT / f"{name}.selectors.gz", "wt", encoding="utf-8") as handle:
+        with gzip.open(OUT / f"{name}.selectors.bin", "wt", encoding="utf-8") as handle:
             handle.write("\n".join(merged))
     print(f"{name}: {len(allowed)} domains, {len(merged)} selectors")
 
