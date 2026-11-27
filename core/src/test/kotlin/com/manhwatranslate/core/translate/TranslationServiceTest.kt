@@ -85,7 +85,7 @@ class TranslationServiceTest {
     fun `a rejected batch falls back to the backup provider`() = runBlocking {
         val primary = FakeProvider(failOn = "boom")
         val backup = FakeProvider()
-        val service = TranslationService(primary, backup = backup, maxRetries = 0)
+        val service = TranslationService(primary, backups = listOf(backup), maxRetries = 0)
         val result = service.translate(
             regions = listOf(region(0, "boom here")),
             script = SourceScript.KOREAN,
@@ -109,7 +109,7 @@ class TranslationServiceTest {
                 target: TranslationLanguage,
             ): List<String> = texts
         }
-        val service = TranslationService(echo, backup = FakeProvider(), maxRetries = 0)
+        val service = TranslationService(echo, backups = listOf(FakeProvider()), maxRetries = 0)
         val result = service.translate(
             regions = listOf(region(0, "안녕하세요")),
             script = SourceScript.KOREAN,
@@ -164,6 +164,39 @@ class TranslationServiceTest {
             target = TranslationLanguage.VIETNAMESE,
         )
         assertEquals(3, calls, "a timeout is worth retrying")
+    }
+
+    @Test
+    fun `the second backup answers when the first one also fails`() = runBlocking {
+        val primary = FakeProvider(failOn = "boom")
+        val dead = FakeProvider(failOn = "boom")
+        val live = FakeProvider()
+        val service = TranslationService(primary, backups = listOf(dead, live), maxRetries = 0)
+        val result = service.translate(
+            regions = listOf(region(0, "boom here")),
+            script = SourceScript.KOREAN,
+            target = TranslationLanguage.VIETNAMESE,
+        )
+        val translated = result.translations.first()
+        assertEquals("vi:boom here", translated.translatedText)
+        assertEquals(TranslationStatus.DONE, translated.status)
+    }
+
+    @Test
+    fun `every backup failing keeps the original and names the reason`() = runBlocking {
+        val primary = FakeProvider(failOn = "boom")
+        val service = TranslationService(
+            primary,
+            backups = listOf(FakeProvider(failOn = "boom")),
+            maxRetries = 0,
+        )
+        val result = service.translate(
+            regions = listOf(region(0, "boom here")),
+            script = SourceScript.KOREAN,
+            target = TranslationLanguage.VIETNAMESE,
+        )
+        assertEquals(TranslationStatus.FAILED, result.translations.first().status)
+        assertTrue(result.warnings.any { it.contains("Fake") })
     }
 
     @Test

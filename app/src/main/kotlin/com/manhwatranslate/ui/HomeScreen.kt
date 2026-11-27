@@ -664,7 +664,11 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
 }
 
 private fun TranslationProviderType.shortLabel(): String = when (this) {
+    TranslationProviderType.FREE_AUTO -> "Miễn phí"
     TranslationProviderType.ON_DEVICE -> "ML Kit"
+    TranslationProviderType.GOOGLE_FREE -> "Google Dịch"
+    TranslationProviderType.MYMEMORY -> "MyMemory"
+    TranslationProviderType.LIBRE_TRANSLATE -> "LibreTranslate"
     TranslationProviderType.GOOGLE_CLOUD -> "Google Cloud"
     TranslationProviderType.DEEPL -> "DeepL"
     TranslationProviderType.OPENAI_COMPATIBLE -> "OpenAI"

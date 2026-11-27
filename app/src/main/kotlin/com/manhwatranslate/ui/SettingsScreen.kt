@@ -103,6 +103,7 @@ fun SettingsScreen(
             viewModel.testApiKey()
         },
         onTestOcr = { viewModel.testOcrServer() },
+        onTestFree = { viewModel.testFreeSources() },
         onPickFont = onPickFont,
         onClearFont = { viewModel.clearFont() },
         onBack = onBack,
@@ -119,6 +120,7 @@ internal fun SettingsContent(
     onSaveKey: (TranslationProviderType, String) -> Unit,
     onTestKey: (TranslationProviderType, String) -> Unit,
     onTestOcr: () -> Unit,
+    onTestFree: () -> Unit,
     onPickFont: () -> Unit,
     onClearFont: () -> Unit,
     onBack: () -> Unit,
@@ -241,6 +243,14 @@ internal fun SettingsContent(
                         currentKey = apiKeyFor(settings.provider),
                         onTest = { key -> onTestKey(settings.provider, key) },
                         onSave = { key -> onSaveKey(settings.provider, key) },
+                        onUpdate = onUpdate,
+                    )
+                }
+            } else if (settings.provider.isBuiltInFree) {
+                item {
+                    FreeSourcesCard(
+                        settings = settings,
+                        onTest = onTestFree,
                         onUpdate = onUpdate,
                     )
                 }
@@ -708,6 +718,61 @@ private fun ApiKeyCard(
                         Text("Xoá")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FreeSourcesCard(
+    settings: AppSettings,
+    onTest: () -> Unit,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+) {
+    GroupCard {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Nguồn miễn phí",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                StatusPill(text = "Không cần key", positive = true)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Bộ dịch tự đổi nguồn khi một máy chủ bị chặn hoặc hết hạn mức; " +
+                    "ML Kit trên máy là chốt cuối nên trang vẫn dịch được khi mạng có sự cố.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (settings.provider == TranslationProviderType.LIBRE_TRANSLATE) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = settings.libreTranslateUrl,
+                    onValueChange = { value -> onUpdate { it.copy(libreTranslateUrl = value) } },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Địa chỉ server") },
+                    placeholder = { Text("http://192.168.1.10:5000") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "docker run -p 5000:5000 libretranslate/libretranslate",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onTest,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Kiểm tra các nguồn")
             }
         }
     }

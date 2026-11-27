@@ -33,10 +33,18 @@ ngay trên máy: **nhận diện vùng chữ → xoá chữ gốc → dịch →
   được dịch.
 - **Bám kiểu chữ gốc**: ước lượng in đậm, in nghiêng, chữ hoa, bề rộng chữ (condensed) và cỡ chữ
   từ chiều cao dòng gốc; hỗ trợ nhập font TTF riêng trong Cài đặt.
-- **Dịch** qua 5 nhà cung cấp: ML Kit trên máy (miễn phí, offline), Google Cloud Translation,
-  DeepL, Gemini, và mọi endpoint kiểu OpenAI (OpenAI, DeepSeek, Groq, OpenRouter, server nội bộ).
-  Nhà cung cấp kiểu LLM dịch cả trang trong một lượt để giữ ngữ cảnh, có đánh số `[[n]]` để ghép
-  lại chính xác.
+- **Dịch** qua các nhà cung cấp có sẵn và có key. Mặc định là **bộ nguồn miễn phí tích hợp sẵn**:
+  Google Dịch công khai (dịch cả trang trong một lượt) rồi MyMemory, tự đổi nguồn khi một máy chủ bị
+  chặn, hết hạn mức hay treo, và **ML Kit trên máy là chốt cuối** nên trang không bao giờ bị bỏ dở.
+  Ngoài ra: Google Cloud Translation, DeepL, Gemini, và mọi endpoint kiểu OpenAI (OpenAI, DeepSeek,
+  Groq, OpenRouter, server nội bộ) — nhà cung cấp kiểu LLM dịch cả trang trong một lượt để giữ ngữ
+  cảnh, có đánh số `[[n]]` để ghép lại chính xác. Tự dựng server LibreTranslate cũng dùng được như
+  một nguồn miễn phí không hạn mức.
+- **Không gián đoạn khi dịch**: mỗi lô thử lại có chờ (400 ms → 1 600 ms) nên một lần bị chặn tần
+  suất không tính là hỏng; nguồn vừa lỗi được cho nghỉ, thời gian nghỉ tăng gấp đôi sau mỗi lần lỗi
+  liên tiếp (tối đa 20 phút) và được xoá ngay khi nguồn đó trả lời được; lô nào nguồn chính bỏ thì
+  lần lượt chuyển sang nguồn miễn phí kế tiếp rồi mới tới máy trên máy. Mạng chậm cũng không treo
+  trang: nguồn miễn phí dùng timeout ngắn (25 s cho cả lượt gọi) nên lượt hỏng nhường chỗ ngay.
 - **Vẽ bản dịch**: mỗi vùng dùng đúng một cỡ chữ, chọn cỡ lớn nhất mà cả khối vẫn nằm trong khung
   gốc — kể cả phần viền chữ, và ưu tiên số dòng giống bản gốc nên bản dịch không bị vỡ thành cột chữ
   nhỏ. Tự xuống dòng theo từ (hoặc từng ký tự với tiếng Trung/Nhật), tự chọn màu chữ sáng/tối theo
@@ -67,9 +75,11 @@ core/   Kotlin/JVM thuần, không phụ thuộc Android — toàn bộ thuật 
               Morphology, TextEraser (solid/diffusion/auto)
   layout/     TextLayoutEngine (tự co cỡ chữ, ngắt dòng theo từ và CJK), FontEstimator, FontSpec
   render/     RenderStyle, PageCompositor (interface vẽ theo nền tảng)
-  translate/  TranslationProvider, TranslationService (chia lô, khử trùng, retry)
+  translate/  TranslationProvider, TranslationService (chia lô, khử trùng, retry có chờ),
+              FallbackTranslationProvider (đổi nguồn, cho nguồn lỗi nghỉ)
   pipeline/   TranslationPipeline (detect → erase → translate → render)
-app/    Android: ML Kit OCR, các provider dịch, Canvas renderer, Compose UI, DataStore,
+app/    Android: ML Kit OCR, các provider dịch (kể cả nguồn miễn phí không cần key),
+        Canvas renderer, Compose UI, DataStore,
         phông chữ nhập tay, trình đọc web (WebView + WebImageBridge), chặn quảng cáo (AdBlocker)
 demo/   Harness Java2D chạy đúng pipeline trên một trang manhwa tổng hợp, xuất ảnh PNG để kiểm tra
 ```
@@ -105,9 +115,11 @@ Kết quả ghi ra `out/real/*-source.png`, `*-erased.png`, `*-translated.png` k
 ## Cài đặt
 
 1. Mở APK, cấp quyền lưu ảnh nếu máy chạy Android 9 trở xuống.
-2. Vào **Cài đặt → Nhà cung cấp dịch**. Mặc định là ML Kit trên máy: miễn phí, chỉ cần mạng
-   lần đầu để tải gói ngôn ngữ (~30 MB). Muốn chất lượng cao hơn thì nhập API key Google Cloud,
-   DeepL, Gemini hoặc OpenAI.
+2. Vào **Cài đặt → Bộ dịch**. Mặc định là **Miễn phí tích hợp sẵn** — không cần API key, chất
+   lượng tốt hơn ML Kit nhờ Google Dịch và tự chuyển sang MyMemory khi bị giới hạn. Nút *Kiểm tra
+   các nguồn* cho biết nguồn nào đang trả lời. Chọn **Trên máy (ML Kit)** nếu muốn dịch hoàn toàn
+   offline (tải gói ngôn ngữ ~30 MB lần đầu), hoặc nhập API key Google Cloud, DeepL, Gemini, OpenAI
+   để có chất lượng cao nhất.
 3. Chọn **Chữ trên ảnh** (Hàn/Nhật/Trung/Latinh) nếu truyện chỉ có một ngôn ngữ — nhận diện sẽ
    nhanh hơn nhiều so với chế độ Tự động.
 4. Về trang chủ, chọn ảnh hoặc chụp ảnh. Ứng dụng xử lý rồi mở trình xem.

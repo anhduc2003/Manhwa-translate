@@ -8,6 +8,7 @@ import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.di.AppContainer
+import com.manhwatranslate.translate.FreeProviders
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,6 +74,32 @@ class SettingsViewModel(
                     onFailure = { error -> error.message ?: error.javaClass.simpleName },
                 ),
             )
+        }
+    }
+
+    /**
+     * Asks every keyless source one short sentence, so a blocked or rate-limited endpoint shows
+     * up here instead of as a page that came back in Korean.
+     */
+    fun testFreeSources() {
+        val settings = _state.value.settings
+        viewModelScope.launch {
+            _state.value = _state.value.copy(message = "Đang kiểm tra nguồn miễn phí…")
+            val results = FreeProviders.all(settings.libreTranslateUrl).map { provider ->
+                val outcome = runCatching {
+                    provider.translate(
+                        texts = listOf("Good morning"),
+                        sourceLanguage = com.manhwatranslate.core.model.SourceScript.LATIN,
+                        target = com.manhwatranslate.core.model.TranslationLanguage.VIETNAMESE,
+                    )
+                }
+                val status = outcome.fold(
+                    onSuccess = { lines -> "OK: ${lines.firstOrNull().orEmpty()}" },
+                    onFailure = { error -> error.message ?: error.javaClass.simpleName },
+                )
+                "${provider.displayName} — $status"
+            }
+            _state.value = _state.value.copy(message = results.joinToString(" · "))
         }
     }
 

@@ -16,7 +16,7 @@ import kotlinx.serialization.Serializable
 data class AppSettings(
     val sourceScript: SourceScript = SourceScript.AUTO,
     val target: TranslationLanguage = TranslationLanguage.VIETNAMESE,
-    val provider: TranslationProviderType = TranslationProviderType.ON_DEVICE,
+    val provider: TranslationProviderType = TranslationProviderType.FREE_AUTO,
     val openAiBaseUrl: String = "https://api.openai.com/v1",
     val openAiModel: String = "gpt-4o-mini",
     val geminiModel: String = "gemini-2.0-flash",
@@ -44,6 +44,7 @@ data class AppSettings(
     val webReaderMode: Boolean = true,
     val webDesktopMode: Boolean = false,
     val webKeepAwake: Boolean = true,
+    val libreTranslateUrl: String = "",
     val paddleOcrUrl: String = "http://192.168.1.10:8866",
     val paddleOcrToken: String = "",
     val keepOriginalOnFailure: Boolean = true,
