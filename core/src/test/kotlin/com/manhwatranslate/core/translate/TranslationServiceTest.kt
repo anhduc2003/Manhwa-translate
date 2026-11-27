@@ -98,6 +98,27 @@ class TranslationServiceTest {
     }
 
     @Test
+    fun `an echoed batch falls back to the backup provider`() = runBlocking {
+        val echo = object : TranslationProvider {
+            override val id = "echo"
+            override val displayName = "Echo"
+            override val recommendedBatchSize = 2
+            override suspend fun translate(
+                texts: List<String>,
+                sourceLanguage: SourceScript,
+                target: TranslationLanguage,
+            ): List<String> = texts
+        }
+        val service = TranslationService(echo, backup = FakeProvider(), maxRetries = 0)
+        val result = service.translate(
+            regions = listOf(region(0, "안녕하세요")),
+            script = SourceScript.KOREAN,
+            target = TranslationLanguage.VIETNAMESE,
+        )
+        assertEquals("vi:안녕하세요", result.translations.first().translatedText)
+    }
+
+    @Test
     fun `regions with too few letters are skipped`() = runBlocking {
         val service = TranslationService(FakeProvider(), maxRetries = 0)
         val result = service.translate(

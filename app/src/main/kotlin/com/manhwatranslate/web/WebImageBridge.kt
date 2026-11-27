@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.webkit.CookieManager
 import com.manhwatranslate.core.image.ArgbImage
+import com.manhwatranslate.core.model.PageProcessingResult
 import com.manhwatranslate.core.model.PipelineProgress
 import com.manhwatranslate.core.model.PipelineStage
 import com.manhwatranslate.data.AppSettings
@@ -23,6 +24,14 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+
+/** What a finished batch did, so the reader can show where the time and the misses went. */
+data class PageTranslationReport(
+    val summary: String,
+    val seconds: Int,
+    val warnings: String,
+    val details: List<String>,
+)
 
 /** One page image the reader found and asked to translate. */
 data class PageImage(
@@ -49,8 +58,7 @@ class WebImageBridge(
     private val onTranslated: (index: Int, token: String) -> Unit,
     private val onFailed: (index: Int, reason: String) -> Unit,
     private val onProgress: (done: Int, total: Int) -> Unit,
-    private val onFinished: (summary: String, seconds: Int, warnings: String) -> Unit =
-        { _, _, _ -> },
+    private val onFinished: (PageTranslationReport) -> Unit = {},
 ) {
 
     companion object {
@@ -85,6 +93,7 @@ class WebImageBridge(
     private val downloadGate = Semaphore(MAX_DOWNLOADS)
 
     private val warnings = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val reports = ConcurrentHashMap<Int, String>()
     private val startedAt = AtomicLong(0)
     private val detectNanos = AtomicLong(0)
     private val translateNanos = AtomicLong(0)
@@ -129,6 +138,7 @@ class WebImageBridge(
         detectNanos.set(0)
         translateNanos.set(0)
         warnings.clear()
+        reports.clear()
         pending.addAndGet(images.size)
         onProgress(completed.get(), pending.get())
         images.forEach(::queue)
@@ -151,6 +161,7 @@ class WebImageBridge(
                     }
                     clock.finish()
                     result.warnings.forEach { warnings.add(it) }
+                    describe(image, result)
                     detectNanos.addAndGet(clock.deviceNanos)
                     translateNanos.addAndGet(clock.translateNanos)
                     val token = "${image.index}-${System.currentTimeMillis()}.jpg"
@@ -162,17 +173,47 @@ class WebImageBridge(
                     countGate.release()
                 }
             } catch (error: OutOfMemoryError) {
+                reports[image.index] = "ảnh quá lớn so với bộ nhớ máy"
                 onFailed(image.index, "Ảnh quá lớn so với bộ nhớ máy")
             } catch (error: Exception) {
-                onFailed(image.index, error.message ?: "Lỗi dịch ảnh")
+                val reason = error.message ?: "lỗi dịch ảnh"
+                reports[image.index] = "không dịch được: $reason"
+                onFailed(image.index, reason)
             } finally {
                 val done = completed.incrementAndGet()
                 onProgress(done, pending.get())
                 if (done >= pending.get()) {
-                    onFinished(summary(), elapsedSeconds(), warnings.joinToString("; "))
+                    onFinished(
+                        PageTranslationReport(
+                            summary = summary(),
+                            seconds = elapsedSeconds(),
+                            warnings = warnings.joinToString("; "),
+                            details = reports.entries.sortedBy { it.key }
+                                .map { (index, text) -> "Ảnh ${index + 1}: $text" },
+                        ),
+                    )
                 }
             }
         }
+    }
+
+    /** Notes what happened to an image, so a page that comes back untranslated says why. */
+    private fun describe(image: PageImage, result: PageProcessingResult) {
+        if (result.regions.isEmpty()) {
+            reports[image.index] = if (result.skipped.isEmpty()) {
+                "không thấy vùng chữ"
+            } else {
+                "chỉ thấy ${result.skipped.size} vùng hiệu ứng âm thanh"
+            }
+            return
+        }
+        val failed = result.translations.count {
+            it.status == com.manhwatranslate.core.model.TranslationStatus.FAILED
+        }
+        val kept = ArrayList<String>(2)
+        if (failed > 0) kept += "$failed/${result.regions.size} vùng dịch lỗi, giữ chữ gốc"
+        if (result.skipped.isNotEmpty()) kept += "bỏ qua ${result.skipped.size} vùng hiệu ứng âm thanh"
+        if (kept.isEmpty()) reports.remove(image.index) else reports[image.index] = kept.joinToString(", ")
     }
 
     fun serve(token: String): ByteArray? = cache[token]
@@ -204,17 +245,23 @@ class WebImageBridge(
         }
         return withContext(Dispatchers.IO) {
             downloadGate.withPermit {
-                runCatching {
-                    val builder = Request.Builder().url(url).header("User-Agent", USER_AGENT)
-                    if (pageUrl.isNotBlank()) builder.header("Referer", pageUrl)
-                    cookie?.let { builder.header("Cookie", it) }
-                    client.newCall(builder.build()).execute().use { response ->
-                        if (response.isSuccessful) response.body?.bytes() else null
-                    }
-                }.getOrNull()
+                fetch(url, cookie, referer = true) ?: fetch(url, cookie, referer = false)
             }
         }
     }
+
+    /**
+     * One attempt at the bytes. Some sites reject a hotlinked image and answer only when the
+     * referer is gone, so the caller retries without it rather than leaving the page untranslated.
+     */
+    private fun fetch(url: String, cookie: String?, referer: Boolean): ByteArray? = runCatching {
+        val builder = Request.Builder().url(url).header("User-Agent", USER_AGENT)
+        if (referer && pageUrl.isNotBlank()) builder.header("Referer", pageUrl)
+        cookie?.let { builder.header("Cookie", it) }
+        client.newCall(builder.build()).execute().use { response ->
+            if (response.isSuccessful) response.body?.bytes() else null
+        }
+    }.getOrNull()
 
     private suspend fun decode(bytes: ByteArray, plan: Plan): ArgbImage? =
         withContext(Dispatchers.Default) {

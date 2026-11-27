@@ -96,6 +96,19 @@ class TranslationService(
         return TranslationBatchResult(skipped + translations, warnings)
     }
 
+    /**
+     * A backend that answers with the text it was given has not translated it: a model whose
+     * moderation fires often returns the input instead of an error, and treating that as a
+     * result is what left pages sitting in the original language.
+     */
+    private fun isEcho(batch: List<String>, result: List<String>): Boolean {
+        if (batch.size != result.size) return true
+        val letters = batch.indices.any { index ->
+            batch[index].any(Char::isLetter) && batch[index].trim() == result[index].trim()
+        }
+        return letters && batch.indices.all { batch[it].trim() == result[it].trim() }
+    }
+
     private suspend fun translateBatchWithRetry(
         batch: List<String>,
         script: SourceScript,
@@ -107,10 +120,12 @@ class TranslationService(
         while (attempt <= maxRetries) {
             try {
                 val result = provider.translate(batch, script, target)
-                if (result.size == batch.size) return result
-                lastError = IllegalStateException(
-                    "Provider ${provider.id} trả về ${result.size}/${batch.size} dòng",
-                )
+                if (result.size == batch.size && !isEcho(batch, result)) return result
+                lastError = if (result.size != batch.size) {
+                    IllegalStateException("Provider ${provider.id} trả về ${result.size}/${batch.size} dòng")
+                } else {
+                    IllegalStateException("${provider.displayName} trả lại nguyên văn bản gốc")
+                }
             } catch (error: Throwable) {
                 lastError = error
                 if (error is kotlinx.coroutines.CancellationException) throw error
@@ -128,7 +143,7 @@ class TranslationService(
                     "($reason)"
                 return batch
             }
-            if (recovered.size == batch.size && recovered.any { it.isNotBlank() }) {
+            if (recovered.size == batch.size && !isEcho(batch, recovered)) {
                 warnings += "${provider.displayName} không dịch được ($reason), " +
                     "đã chuyển sang ${fallback.displayName}"
                 return recovered

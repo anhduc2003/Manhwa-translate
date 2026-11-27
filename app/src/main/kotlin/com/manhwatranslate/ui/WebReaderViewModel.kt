@@ -30,6 +30,7 @@ data class WebReaderUiState(
     val failedCount: Int = 0,
     val elapsedSeconds: Int = 0,
     val timing: String = "",
+    val details: List<String> = emptyList(),
     val message: String? = null,
     val clearSignal: Int = 0,
 )
@@ -78,18 +79,19 @@ class WebReaderViewModel(
                 )
             }
         },
-        onFinished = { summary, seconds, warnings ->
+        onFinished = { report ->
             _state.update { current ->
-                val failed = current.failedCount
-                val base = if (failed > 0) {
-                    "Đã dịch ${current.translatedCount} ảnh trong ${seconds}s, $failed ảnh lỗi"
+                val base = if (current.failedCount > 0) {
+                    "Đã dịch ${current.translatedCount} ảnh trong ${report.seconds}s, " +
+                        "${current.failedCount} ảnh lỗi"
                 } else {
-                    "Đã dịch xong ${current.translatedCount} ảnh trong ${seconds}s"
+                    "Đã dịch xong ${current.translatedCount} ảnh trong ${report.seconds}s"
                 }
                 current.copy(
-                    elapsedSeconds = seconds,
-                    timing = summary,
-                    message = if (warnings.isBlank()) base else "$base — $warnings",
+                    elapsedSeconds = report.seconds,
+                    timing = report.summary,
+                    details = report.details,
+                    message = if (report.warnings.isBlank()) base else "$base — ${report.warnings}",
                 )
             }
         },
@@ -131,6 +133,7 @@ class WebReaderViewModel(
             failedCount = 0,
             elapsedSeconds = 0,
             timing = "",
+            details = emptyList(),
         )
     }
 
@@ -180,6 +183,7 @@ class WebReaderViewModel(
             failedCount = 0,
             elapsedSeconds = 0,
             timing = "",
+            details = emptyList(),
             translating = false,
             clearSignal = _state.value.clearSignal + 1,
         )

@@ -48,9 +48,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,11 +65,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -117,6 +122,7 @@ fun WebReaderScreen(
     var addressBar by rememberSaveable { mutableStateOf("") }
     var pageLoaded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(Unit) {
@@ -129,8 +135,14 @@ fun WebReaderScreen(
     }
 
     LaunchedEffect(state.message) {
-        state.message?.let {
-            snackbar.showSnackbar(it)
+        state.message?.let { text ->
+            val result = snackbar.showSnackbar(
+                message = text,
+                actionLabel = if (state.details.isEmpty()) null else "Chi tiết",
+                withDismissAction = state.details.isEmpty(),
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) detailsOpen = true
             viewModel.consumeMessage()
         }
     }
@@ -204,6 +216,27 @@ fun WebReaderScreen(
         }
     }
 
+    if (detailsOpen) {
+        AlertDialog(
+            onDismissRequest = { detailsOpen = false },
+            title = { Text("Chi tiết dịch") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    state.details.forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { detailsOpen = false }) { Text("Đóng") }
+            },
+        )
+    }
+
     BackHandler {
         val view = webView
         if (view != null && view.canGoBack()) view.goBack() else onBack()
@@ -238,6 +271,11 @@ fun WebReaderScreen(
                         }
                     },
                     actions = {
+                        if (state.details.isNotEmpty()) {
+                            IconButton(onClick = { detailsOpen = true }) {
+                                Icon(Icons.Outlined.Info, contentDescription = "Chi tiết dịch")
+                            }
+                        }
                         IconButton(onClick = { webView?.reload() }) {
                             Icon(Icons.Outlined.Refresh, contentDescription = "Tải lại")
                         }
