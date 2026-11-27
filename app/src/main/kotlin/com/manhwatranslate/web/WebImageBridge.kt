@@ -10,6 +10,7 @@ import com.manhwatranslate.core.model.PageProcessingResult
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.model.PipelineProgress
 import com.manhwatranslate.core.model.PipelineStage
+import com.manhwatranslate.core.translate.isRealTranslation
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.ImageStore
 import com.manhwatranslate.pipeline.TranslationEngine
@@ -28,6 +29,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -69,7 +71,12 @@ class WebImageBridge(
 
     companion object {
         const val LOCAL_HOST = "manhwa-translate.local"
-        private const val MAX_CACHED_PAGES = 32
+        /**
+         * Bytes of translated pages kept for the WebView. A chapter is nine to twenty pages at
+         * one to three megabytes each, so this holds a chapter or two without pinning an unbounded
+         * amount of the heap a phone also needs for the page itself.
+         */
+        private const val MAX_CACHED_BYTES = 48L * 1024 * 1024
         /**
          * A page is decoded to at most this many pixels. The pipeline needs three page-sized
          * buffers plus a bitmap, so twelve megapixels was already past what the heap allows on a
@@ -106,6 +113,7 @@ class WebImageBridge(
     private val cache = ConcurrentHashMap<String, ByteArray>()
     private val order = ArrayDeque<String>()
     private val orderLock = Any()
+    private var cachedBytes = 0L
     private val pending = AtomicInteger(0)
     private val completed = AtomicInteger(0)
     private val pixelBudget = PixelBudget(PIXEL_BUDGET_MP)
@@ -116,6 +124,7 @@ class WebImageBridge(
     private val startedAt = AtomicLong(0)
     private val detectNanos = AtomicLong(0)
     private val translateNanos = AtomicLong(0)
+    private val refineFailureShown = AtomicBoolean(false)
 
     @Volatile
     private var pageUrl: String = ""
@@ -162,6 +171,7 @@ class WebImageBridge(
         translateNanos.set(0)
         warnings.clear()
         reports.clear()
+        refineFailureShown.set(false)
         pending.addAndGet(images.size)
         onProgress(completed.get(), pending.get())
         images.forEach(::queue)
@@ -198,7 +208,6 @@ class WebImageBridge(
                     }
                     clock.finish()
                     result.warnings.forEach { warnings.add(it) }
-                    describe(image, result)
                     android.util.Log.d(
                         "WebImageBridge",
                         "ảnh ${image.index}: ${plan.pixels / 1000}K px, " +
@@ -207,16 +216,15 @@ class WebImageBridge(
                     )
                     detectNanos.addAndGet(clock.deviceNanos)
                     translateNanos.addAndGet(clock.translateNanos)
-                    publish(image.index, result.image)
+                    val translated = result.translations.count { it.isRealTranslation() }
+                    describe(image, result)
+                    // A page with nothing translated is left exactly as the site served it: erasing
+                    // the lettering and drawing the Korean back is what made pages look untouched.
+                    if (translated > 0) publish(image.index, result.image)
                     if (settings.provider != TranslationProviderType.ON_DEVICE &&
                         result.regions.isNotEmpty()
                     ) {
-                        refine = {
-                            val started = System.currentTimeMillis()
-                            val better = engine.refineTranslation(result, settings)
-                            translateNanos.addAndGet(System.currentTimeMillis() - started)
-                            publish(image.index, better.image)
-                        }
+                        refine = { refinePage(image, result, settings) }
                     }
                 } finally {
                     pixelBudget.release(units)
@@ -232,23 +240,59 @@ class WebImageBridge(
             } finally {
                 val done = completed.incrementAndGet()
                 onProgress(done, pending.get())
-                if (done >= pending.get()) {
-                    onFinished(
-                        PageTranslationReport(
-                            summary = summary(),
-                            seconds = elapsedSeconds(),
-                            warnings = warnings.joinToString("; "),
-                            details = reports.entries.sortedBy { it.key }
-                                .map { (index, text) -> "Ảnh ${index + 1}: $text" },
-                        ),
-                    )
-                }
+                if (done >= pending.get()) onFinished(report())
             }
             // The cloud pass runs outside the pixel gate: the page is already readable, and the
             // slower model must not hold a slot the next page needs.
             runCatching { refine?.invoke() }
         }
     }
+
+    /**
+     * Replaces an on-device translation with the backend the reader picked. A pass that yields no
+     * new translation leaves the page it already published alone, and a failure is reported
+     * instead of silently keeping the weaker page.
+     */
+    private suspend fun refinePage(
+        image: PageImage,
+        result: PageProcessingResult,
+        settings: AppSettings,
+    ) {
+        val started = System.currentTimeMillis()
+        try {
+            val better = engine.refineTranslation(result, settings)
+            val before = result.translations.associate { it.regionId to it.translatedText }
+            val changed = better.translations.any { before[it.regionId] != it.translatedText }
+            when {
+                changed -> {
+                    reports.remove(image.index)
+                    publish(image.index, better.image)
+                }
+                better.translations.none { it.isRealTranslation() } -> reports[image.index] =
+                    "máy chủ dịch không trả về bản dịch nào, giữ ảnh gốc của trang"
+            }
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            val reason = error.message ?: error.javaClass.simpleName
+            android.util.Log.d("WebImageBridge", "dịch lại ảnh ${image.index} lỗi: $reason")
+            reports[image.index] = "bản dịch API lỗi, giữ bản dịch trên máy: $reason"
+            if (refineFailureShown.compareAndSet(false, true)) {
+                warnings.add("Bản dịch API lỗi ($reason), trang giữ bản dịch trên máy")
+                onFinished(report())
+            }
+        } finally {
+            translateNanos.addAndGet(System.currentTimeMillis() - started)
+        }
+    }
+
+    /** What the reader shows about this batch: the summary line plus one row per image. */
+    private fun report(): PageTranslationReport = PageTranslationReport(
+        summary = summary(),
+        seconds = elapsedSeconds(),
+        warnings = warnings.joinToString("; "),
+        details = reports.entries.sortedBy { it.key }
+            .map { (index, text) -> "Ảnh ${index + 1}: $text" },
+    )
 
     /** Hands one rendered page to the WebView under a fresh token. */
     private suspend fun publish(index: Int, image: ArgbImage) {
@@ -278,11 +322,13 @@ class WebImageBridge(
             }
             return
         }
-        val failed = result.translations.count {
-            it.status == com.manhwatranslate.core.model.TranslationStatus.FAILED
-        }
+        val translated = result.translations.count { it.isRealTranslation() }
         val kept = ArrayList<String>(2)
-        if (failed > 0) kept += "$failed/${result.regions.size} vùng dịch lỗi, giữ chữ gốc"
+        if (translated == 0) {
+            kept += "không dịch được vùng nào, giữ ảnh gốc của trang"
+        } else if (translated < result.regions.size) {
+            kept += "${result.regions.size - translated}/${result.regions.size} vùng giữ chữ gốc"
+        }
         if (result.skipped.isNotEmpty()) kept += "bỏ qua ${result.skipped.size} vùng hiệu ứng âm thanh"
         if (kept.isEmpty()) reports.remove(image.index) else reports[image.index] = kept.joinToString(", ")
     }
@@ -291,7 +337,10 @@ class WebImageBridge(
 
     fun clear() {
         cache.clear()
-        synchronized(orderLock) { order.clear() }
+        synchronized(orderLock) {
+            order.clear()
+            cachedBytes = 0L
+        }
         pending.set(0)
         completed.set(0)
         startedAt.set(0)
@@ -304,8 +353,10 @@ class WebImageBridge(
     private fun remember(token: String) {
         synchronized(orderLock) {
             order.addLast(token)
-            while (order.size > MAX_CACHED_PAGES) {
-                cache.remove(order.removeFirst())
+            cachedBytes += cache[token]?.size ?: 0
+            while (cachedBytes > MAX_CACHED_BYTES && order.size > 1) {
+                val oldest = order.removeFirst()
+                cachedBytes -= cache.remove(oldest)?.size ?: 0
             }
         }
     }

@@ -50,6 +50,9 @@ class WebReaderViewModel(
     /** Set by the screen so the bridge can push a translated page back into the WebView. */
     var onApplyImage: ((index: Int, url: String) -> Unit)? = null
 
+    /** Set by the screen so a page that failed to translate is offered again on the next press. */
+    var onApplyFailed: ((index: Int) -> Unit)? = null
+
     val bridge: WebImageBridge = WebImageBridge(
         scope = viewModelScope,
         imageStore = container.imageStore,
@@ -57,14 +60,16 @@ class WebReaderViewModel(
         settingsProvider = { settings },
         onTranslated = { index, token ->
             val url = "https://${WebImageBridge.LOCAL_HOST}/page/$token"
-            _state.update { it.copy(translatedCount = it.translatedCount + 1) }
             onApplyImage?.invoke(index, url)
         },
         onFailed = { index, reason ->
-            _state.update { current ->
-                if (index < 0) {
-                    current.copy(message = reason)
-                } else {
+            if (index < 0) {
+                _state.update { it.copy(message = reason) }
+            } else {
+                // The bridge fails a page on a worker thread, and the WebView only accepts a
+                // script call on the main one.
+                viewModelScope.launch { onApplyFailed?.invoke(index) }
+                _state.update { current ->
                     current.copy(failedCount = current.failedCount + 1)
                 }
             }
