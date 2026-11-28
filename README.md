@@ -36,7 +36,7 @@ hoàn thành toàn bộ quy trình dịch — không cần chụp màn hình, kh
 | | |
 | --- | --- |
 | **Nhận diện thông minh** | Tự chọn mô hình phù hợp, bắt cả chữ nhỏ trên ảnh nén. |
-| **Inpaint giữ nền gốc** | Vá màu sát vân giấy, gradient và độ dốc của bong bóng. |
+| **Inpaint giữ nền gốc** | Vá màu sát vân giấy, gradient và độ dốc của bong bóng, hoặc để model AI dựng lại nền (chọn "AI vá nền" trong kiểu xoá). |
 | **Dịch linh hoạt** | Miễn phí không cần key, hoặc dùng Google Cloud, DeepL, Gemini, OpenAI. |
 | **AI offline** | Chạy model GGUF (llama.cpp) ngay trên máy, không cần mạng. |
 | **Trình đọc webtoon** | Đọc web, chặn quảng cáo, tự dịch ảnh ngay khi trang tải xong và dò tiếp ảnh mới khi cuộn. |
