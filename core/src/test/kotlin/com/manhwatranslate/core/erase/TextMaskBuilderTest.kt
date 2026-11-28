@@ -73,6 +73,35 @@ class TextMaskBuilderTest {
     }
 
     @Test
+    fun `a coloured decoration inside the box is not erased`() {
+        val image = ArgbImage.filled(300, 200, Colors.opaque(255, 255, 255))
+        // Letters as bars with gaps, so there is room for a red mark between two of them.
+        for (y in 90 until 110) {
+            for (x in 120 until 180) {
+                if ((x / 8) % 2 == 0) image.set(x, y, Colors.opaque(16, 16, 16))
+            }
+        }
+        for (y in 92 until 108) {
+            for (x in 145 until 165) {
+                val dx = (x - 155) / 10.0
+                val dy = (y - 100) / 8.0
+                if (dx * dx + dy * dy <= 1.0) image.set(x, y, Colors.opaque(214, 36, 52))
+            }
+        }
+
+        val mask = requireNotNull(builder.build(image, region()))
+
+        assertTrue(
+            !mask.at(155 - mask.left, 100 - mask.top),
+            "a red mark inside the text box is artwork, not lettering",
+        )
+        assertTrue(
+            mask.at(124 - mask.left, 100 - mask.top),
+            "the lettering beside the mark is still erased",
+        )
+    }
+
+    @Test
     fun `bubble background around the letters is kept`() {
         val mask = requireNotNull(builder.build(page(), region()))
         val nearCorner = mask.at(2, 2)

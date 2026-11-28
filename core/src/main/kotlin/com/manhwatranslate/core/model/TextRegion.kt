@@ -28,12 +28,27 @@ data class TextRegion(
     val originalTextSizePx: Float = 0f,
     /**
      * How far the lettering is turned on the page, in degrees clockwise. Lettering drawn at an
-     * angle is invisible to an OCR pass that expects a level line, so the page is read again at a
-     * few angles and the ones that come back carry the angle they were found at.
+     * angle is invisible to an OCR pass that expects a level line, so the line is levelled before
+     * it is read and the angle is kept with the region, to draw the translation along it.
      */
     val rotationDegrees: Float = 0f,
+    /**
+     * Size of the lettering before it was levelled. A turned line needs a box wide enough for the
+     * line itself, not for the larger axis-aligned rectangle that contains it; the translation is
+     * laid out in this box and turned back onto the page. Zero means the box already is level.
+     */
+    val uprightWidthPx: Int = 0,
+    val uprightHeightPx: Int = 0,
 ) {
     val lineBoxes: List<RectI> get() = lines.map { it.box }
+
+    /** The box the translation is laid out in, with the page tilt undone. */
+    fun uprightBox(): RectI {
+        if (rotationDegrees == 0f || uprightWidthPx <= 0 || uprightHeightPx <= 0) return box
+        val left = box.centerX - uprightWidthPx / 2
+        val top = box.centerY - uprightHeightPx / 2
+        return RectI(left, top, left + uprightWidthPx, top + uprightHeightPx)
+    }
     val isBlank: Boolean get() = text.isBlank()
     val letterCount: Int get() = text.count { it.isLetterOrDigit() }
 

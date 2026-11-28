@@ -51,6 +51,9 @@ object RegionGrouper {
     }
 
     private fun canJoin(image: ArgbImage, a: TextRegion, b: TextRegion, options: Options): Boolean {
+        // Blocks on the same line of a bubble share its tilt; a level block beside a slanted one
+        // is a different piece of lettering and keeps its own angle.
+        if (kotlin.math.abs(a.rotationDegrees - b.rotationDegrees) > 3f) return false
         val upper = if (a.box.top <= b.box.top) a else b
         val lower = if (upper === a) b else a
         val lineHeight = maxOf(upper.box.height, lower.box.height).coerceAtLeast(1)

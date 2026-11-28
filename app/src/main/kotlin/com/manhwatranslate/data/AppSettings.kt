@@ -72,10 +72,10 @@ data class AppSettings(
     )
 
     fun toPipelineOptions(): PipelineOptions = PipelineOptions(
-        // Lettering drawn on a slant is invisible to a level OCR pass, so the app reads each
-        // tile again at two angles. Costs two extra passes per tile, which is why it is a
-        // setting the app opts into rather than something the core does by default.
-        rotationAngles = listOf(-24f, 24f),
+        // Lettering drawn on a slant is invisible to a level OCR pass. The pipeline measures the
+        // slant on the ink itself and reads only those lines again, levelled at their own angle,
+        // so lettering at any angle is translated and drawn back along the line it came from.
+        autoSlant = true,
         script = sourceScript,
         target = target,
         eraseMode = eraseMode,

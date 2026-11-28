@@ -40,7 +40,12 @@ object RegionMerger {
                 val contained = existing.box.coverageBy(current.box) >= options.containmentThreshold ||
                     current.box.coverageBy(existing.box) >= options.containmentThreshold
                 val sameText = existing.text.isNotBlank() && existing.text == current.text
-                if (iou >= options.iouThreshold || contained || (sameText && existing.box.iou(current.box) > 0.15f)) {
+                // A slanted line and a level one are two different pieces of lettering even when
+                // their boxes overlap; joining them would level the translation of the slanted one.
+                val sameTilt = kotlin.math.abs(existing.rotationDegrees - current.rotationDegrees) <= 3f
+                if (sameTilt && (iou >= options.iouThreshold || contained ||
+                        (sameText && existing.box.iou(current.box) > 0.15f))
+                ) {
                     current = merge(existing, current)
                     result.removeAt(index)
                 } else {
@@ -68,6 +73,7 @@ object RegionMerger {
     }
 
     private fun isSplit(a: TextRegion, b: TextRegion, options: Options): Boolean {
+        if (kotlin.math.abs(a.rotationDegrees - b.rotationDegrees) > 3f) return false
         val gap = a.box.verticalGap(b.box)
         if (gap > options.maxSplitGapPx) return false
         val overlapWidth = a.box.horizontalOverlap(b.box)
@@ -89,13 +95,15 @@ object RegionMerger {
             listOf(a.text, b.text).filter { it.isNotBlank() }.joinToString(" ").trim()
         }
         val confidence = listOfNotNull(a.confidence, b.confidence).average().takeIf { !it.isNaN() }
-        return TextRegion(
-            id = a.id,
+        return a.copy(
             box = box,
             lines = lines,
             text = text,
             script = if (a.script == com.manhwatranslate.core.model.SourceScript.AUTO) b.script else a.script,
             confidence = confidence?.toFloat(),
+            font = if (a.box.height >= b.box.height) a.font else b.font,
+            uprightWidthPx = maxOf(a.uprightWidthPx, b.uprightWidthPx),
+            uprightHeightPx = maxOf(a.uprightHeightPx, b.uprightHeightPx),
         )
     }
 

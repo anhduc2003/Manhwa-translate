@@ -37,6 +37,35 @@ class RegionMergerTest {
     }
 
     @Test
+    fun `the tilt of a slanted line survives the merge`() {
+        val first = region(0, RectI(100, 100, 300, 220)).copy(
+            rotationDegrees = 24f,
+            uprightWidthPx = 290,
+            uprightHeightPx = 40,
+        )
+        val second = region(1, RectI(104, 104, 296, 216)).copy(
+            rotationDegrees = 24f,
+            uprightWidthPx = 288,
+            uprightHeightPx = 38,
+        )
+        val refined = RegionMerger.refine(listOf(first, second))
+
+        assertEquals(1, refined.size)
+        assertEquals(24f, refined.first().rotationDegrees, "the merged region lost its tilt")
+        assertEquals(290, refined.first().uprightWidthPx)
+    }
+
+    @Test
+    fun `a slanted line is not merged into level lettering it overlaps`() {
+        val level = region(0, RectI(100, 100, 300, 160))
+        val slanted = region(1, RectI(108, 104, 292, 158)).copy(rotationDegrees = 24f)
+
+        val refined = RegionMerger.refine(listOf(level, slanted))
+
+        assertEquals(2, refined.size, "two different tilts are two different pieces of lettering")
+    }
+
+    @Test
     fun `two bubbles side by side are kept apart`() {
         val left = region(0, RectI(40, 100, 260, 220))
         val right = region(1, RectI(300, 100, 520, 220))

@@ -24,8 +24,6 @@ class TextMaskBuilder(
         val contextPadding: Int = 16,
         val linePadding: Int = 3,
         val globalTolerance: Float = 36f,
-        val inkAffinity: Float = 0.8f,
-        val strongDistanceFactor: Float = 2.5f,
         val localTolerance: Float = 26f,
         val closingRadius: Int = 2,
         val dilation: Int = 4,
@@ -38,6 +36,12 @@ class TextMaskBuilder(
          */
         val eraseMarginFactor: Float = 0.18f,
         val eraseMarginMaxPx: Int = 36,
+        /**
+         * How far off the paper-to-ink colour line a pixel may sit and still count as lettering.
+         * A looser limit erases more of a faint or mismatched stroke; a tighter one keeps more
+         * artwork that happens to sit inside the box.
+         */
+        val inkResidualLimit: Float = InkAxis.DEFAULT_RESIDUAL_LIMIT,
     )
 
     fun build(
@@ -88,23 +92,26 @@ class TextMaskBuilder(
                 val pixel = pixels[index]
                 val background = backgroundAt(x, y)
                 val backgroundDistance = Colors.distance(pixel, background)
+                // Lettering lies along the paper-to-ink colour line; a coloured decoration inside
+                // the box lies off it, so it is left standing however far from the paper it is.
+                val lettering = backgroundDistance > 14f &&
+                    InkAxis.isInkLike(pixel, background, ink, options.inkResidualLimit)
                 if (quietPaper && backgroundDistance > options.globalTolerance * 1.5f) {
-                    mask[index] = 1
-                    marked++
-                    continue
-                }
-                if (backgroundDistance <= options.globalTolerance) {
-                    val localContrast = kotlin.math.abs(Colors.luminance(pixel) - localMeans[index])
-                    if (localContrast > options.localTolerance * 1.6f && backgroundDistance > 14f) {
+                    if (lettering) {
                         mask[index] = 1
                         marked++
                     }
                     continue
                 }
-                val inkDistance = Colors.distance(pixel, ink)
-                val closerToInk = inkDistance < backgroundDistance * options.inkAffinity
-                val stronglyDifferent = backgroundDistance > options.globalTolerance * options.strongDistanceFactor
-                if (closerToInk || stronglyDifferent) {
+                if (backgroundDistance <= options.globalTolerance) {
+                    val localContrast = kotlin.math.abs(Colors.luminance(pixel) - localMeans[index])
+                    if (localContrast > options.localTolerance * 1.6f && lettering) {
+                        mask[index] = 1
+                        marked++
+                    }
+                    continue
+                }
+                if (lettering) {
                     mask[index] = 1
                     marked++
                 }
@@ -124,8 +131,9 @@ class TextMaskBuilder(
                         val index = y * width + x
                         if (roi[index].toInt() == 0) continue
                         val pixel = pixels[index]
-                        if (Colors.distance(pixel, backgroundAt(x, y)) <= options.globalTolerance * 0.5f) continue
-                        if (Colors.distance(pixel, ink) >= Colors.distance(pixel, paper)) continue
+                        val background = backgroundAt(x, y)
+                        if (Colors.distance(pixel, background) <= options.globalTolerance * 0.5f) continue
+                        if (!InkAxis.isInkLike(pixel, background, ink, options.inkResidualLimit)) continue
                         mask[index] = 1
                         rescued++
                     }
@@ -135,7 +143,10 @@ class TextMaskBuilder(
         }
 
         if (margin > 0 && marked > 0) {
-            growIntoMargin(mask, pixels, width, height, bounds, ink, paper, options.globalTolerance)
+            growIntoMargin(
+                mask, pixels, width, height, bounds, ink, paper,
+                options.globalTolerance, options.inkResidualLimit,
+            )
         }
 
         val metrics = InkAnalyzer.analyze(mask, width, height)
@@ -171,6 +182,7 @@ class TextMaskBuilder(
         ink: Int,
         paper: Int,
         tolerance: Float,
+        residualLimit: Float,
     ) {
         val queued = BooleanArray(width * height)
         val queue = IntArray(width * height)
@@ -196,7 +208,11 @@ class TextMaskBuilder(
                     val pixel = pixels[neighbour]
                     // Only the letter colour continues into the margin: artwork there is a
                     // different colour, and antialiased edges of the same letter sit close to it.
-                    if (Colors.distance(pixel, ink) > tolerance * 1.5f) continue
+                    if (Colors.distance(pixel, ink) > tolerance * 1.5f &&
+                        !InkAxis.isInkLike(pixel, paper, ink, residualLimit)
+                    ) {
+                        continue
+                    }
                     mask[neighbour] = 1
                     queued[neighbour] = true
                     if (tail < queue.size) queue[tail++] = neighbour
