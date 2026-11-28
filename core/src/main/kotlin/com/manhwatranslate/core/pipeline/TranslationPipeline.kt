@@ -35,6 +35,7 @@ import com.manhwatranslate.core.scan.RegionMerger
 import com.manhwatranslate.core.scan.RegionSplitter
 import com.manhwatranslate.core.scan.SfxFilter
 import com.manhwatranslate.core.scan.SfxSensitivity
+import com.manhwatranslate.core.scan.SlantDetector
 import com.manhwatranslate.core.translate.TranslationService
 import kotlinx.coroutines.CancellationException
 
@@ -50,8 +51,15 @@ data class PipelineOptions(
     val render: RenderStyle = RenderStyle(),
     val minLetterCount: Int = 1,
     /**
-     * Angles, in degrees, that the page is turned by to read lettering drawn along a slant.
-     * Each extra angle costs one more OCR pass over every tile; an empty list turns the retry off.
+     * Reads lettering drawn along a slant at whatever angle it is drawn at: the tilt is measured
+     * on the ink itself and only the lines that are actually slanted are read again, levelled.
+     */
+    val autoSlant: Boolean = false,
+    /**
+     * Fixed angles, in degrees, that the page is turned by to read lettering drawn along a slant.
+     * Each extra angle costs one more OCR pass over every tile. [autoSlant] reads a slanted line
+     * at its own angle without this list; keeping it is only useful for a page whose slants are
+     * known in advance.
      */
     val rotationAngles: List<Float> = emptyList(),
     val maxTileHeight: Int = ImageTiler.DEFAULT_MAX_TILE_HEIGHT,
@@ -102,7 +110,7 @@ class TranslationPipeline(
     private var activeRecognizer: TileRecognizer = recognizer
     private val aggressiveMaskOptions = TextMaskBuilder.Options(
         globalTolerance = 32f,
-        inkAffinity = 1.25f,
+        inkResidualLimit = 72f,
         closingRadius = 3,
         dilation = 4,
     )
@@ -443,7 +451,9 @@ class TranslationPipeline(
         options: PipelineOptions,
     ): com.manhwatranslate.core.layout.TextLayout {
         val style = options.render
-        val targetBox = expandedBox(region.box, options.boxExpansion)
+        // A turned line is laid out in its own upright box, not in the larger rectangle that
+        // contains it on the page, or the translation would wrap wider than the line it replaces.
+        val targetBox = expandedBox(region.uprightBox(), options.boxExpansion)
         val font = fontFor(region, style)
         // The size the original lettering was measured at, not the size that fills the bubble:
         // a whispered line should stay small and a shout should stay large, exactly as on the page.
@@ -535,8 +545,67 @@ class TranslationPipeline(
             }
             raw += if (pageOffsetY == 0) found else found.map { it.translated(0, -pageOffsetY) }
             raw += readTilted(tile, options, pageOffsetY)
+            raw += readSlanted(tile, found, options, pageOffsetY)
         }
         return dedupe(raw)
+    }
+
+    /**
+     * Finds the lettering the level pass could not see because it runs uphill or downhill, and
+     * reads each line once, levelled at the angle the detector measured for it. Only the slanted
+     * lines are recognised again, so the cost is one small OCR pass per slanted line rather than
+     * a whole extra pass over the tile.
+     */
+    private suspend fun readSlanted(
+        tile: ImageTile,
+        alreadyRead: List<TextRegion>,
+        options: PipelineOptions,
+        pageOffsetY: Int,
+    ): List<TextRegion> {
+        if (!options.autoSlant) return emptyList()
+        val skip = alreadyRead.map { it.box.translated(-tile.rect.left, -tile.rect.top) }
+        val candidates = try {
+            SlantDetector.detect(tile.image, skip)
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            emptyList()
+        }
+        if (candidates.isEmpty()) return emptyList()
+        val found = ArrayList<TextRegion>()
+        for (candidate in candidates) {
+            val pad = maxOf(10, candidate.box.height / 2)
+            val bounds = candidate.box.expanded(pad).clamped(tile.image.width, tile.image.height) ?: continue
+            if (bounds.width < 24 || bounds.height < 16) continue
+            val crop = tile.image.crop(bounds)
+            val rotation = ImageRotation.of(crop, candidate.angleDegrees)
+            // Anchored at zero, as in the fixed-angle pass: the recognizer adds the tile's own
+            // offset to every box, and these coordinates are still in the levelled copy.
+            val turned = ImageTile(
+                tile.index,
+                RectI(0, 0, rotation.width, rotation.height),
+                crop.rotated(rotation),
+            )
+            val regions = try {
+                activeRecognizer.recognize(turned, options.script)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                emptyList()
+            }
+            for (region in regions) {
+                val box = rotation.toSource(region.box)
+                if (box.width < 8 || box.height < 8) continue
+                val lines = region.lines.map { it.copy(box = rotation.toSource(it.box)) }
+                val mapped = region.copy(
+                    box = box,
+                    lines = lines,
+                    rotationDegrees = candidate.angleDegrees,
+                    uprightWidthPx = region.box.width,
+                    uprightHeightPx = region.box.height,
+                ).translated(tile.rect.left + bounds.left, tile.rect.top + bounds.top)
+                found += if (pageOffsetY == 0) mapped else mapped.translated(0, -pageOffsetY)
+            }
+        }
+        return found
     }
 
     /**
@@ -574,7 +643,11 @@ class TranslationPipeline(
                 val mapped = region.copy(
                     box = box,
                     lines = lines,
-                    rotationDegrees = -angle,
+                    // The turn that levelled the line is the angle it was drawn at, so drawing the
+                    // translation by that angle puts it back along the original line.
+                    rotationDegrees = angle,
+                    uprightWidthPx = region.box.width,
+                    uprightHeightPx = region.box.height,
                 )
                     .translated(tile.rect.left, tile.rect.top)
                 found += if (pageOffsetY == 0) mapped else mapped.translated(0, -pageOffsetY)
@@ -583,11 +656,22 @@ class TranslationPipeline(
         return found
     }
 
-    /** Drops a region another pass already reported in the same place, keeping the first. */
+    /**
+     * Drops a region another pass already reported in the same place. A level pass sometimes
+     * catches a letter or two of a slanted line; when the pass that read the line levelled finds
+     * more of it, that fuller reading replaces the fragment instead of being thrown away.
+     */
     private fun dedupe(regions: List<TextRegion>): List<TextRegion> {
         val kept = ArrayList<TextRegion>(regions.size)
         for (region in regions) {
-            val duplicate = kept.any { other -> overlaps(other.box, region.box) > 0.45f }
+            var duplicate = false
+            for (index in kept.indices) {
+                val other = kept[index]
+                if (overlaps(other.box, region.box) <= 0.45f) continue
+                duplicate = true
+                if (region.letterCount > other.letterCount) kept[index] = region
+                break
+            }
             if (!duplicate) kept += region
         }
         return kept

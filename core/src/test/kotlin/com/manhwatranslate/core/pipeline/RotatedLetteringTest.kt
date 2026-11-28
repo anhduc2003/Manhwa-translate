@@ -35,13 +35,18 @@ class RotatedLetteringTest {
         val radians = Math.toRadians(degrees)
         val cx = width / 2.0
         val cy = centerY
-        for (step in -60..60) {
-            val x = cx + step * 1.4 * cos(radians)
-            val y = cy + step * 1.4 * sin(radians)
-            for (thick in -4..4) {
-                val px = (x - thick * sin(radians)).toInt()
-                val py = (y + thick * cos(radians)).toInt()
-                if (px in 0 until width && py in 0 until height) image.set(px, py, Colors.opaque(15, 15, 15))
+        // Five separate strokes with gaps between them, the way a line of glyphs is drawn: one
+        // unbroken bar would read as a panel border rather than as lettering.
+        for (glyph in 0 until 5) {
+            val first = -60 + glyph * 26
+            for (step in first until first + 16) {
+                val x = cx + step * 1.4 * cos(radians)
+                val y = cy + step * 1.4 * sin(radians)
+                for (thick in -4..4) {
+                    val px = (x - thick * sin(radians)).toInt()
+                    val py = (y + thick * cos(radians)).toInt()
+                    if (px in 0 until width && py in 0 until height) image.set(px, py, Colors.opaque(15, 15, 15))
+                }
             }
         }
         return image
@@ -170,8 +175,11 @@ class RotatedLetteringTest {
         }
     }
 
-    private fun pipeline(compositor: PageCompositor) = TranslationPipeline(
-        recognizer = LevelRecognizer,
+    private fun pipeline(
+        compositor: PageCompositor,
+        recognizer: TileRecognizer = LevelRecognizer,
+    ) = TranslationPipeline(
+        recognizer = recognizer,
         translationService = TranslationService(
             object : TranslationProvider {
                 override val id = "test"
@@ -204,8 +212,85 @@ class RotatedLetteringTest {
         assertEquals(1, result.regions.size, "the slanted line should be found by a turned pass")
         val rotation = result.regions.first().rotationDegrees
         assertTrue(abs(abs(rotation) - 24f) < 1f, "rotation reported as $rotation")
+        // The line is drawn down to the right; the translation has to follow it that way, not
+        // tilt back up as it did when the levelling angle was reported with a flipped sign.
+        assertTrue(rotation > 0f, "a line going down to the right was reported as $rotation")
         assertEquals(1, compositor.items.size)
         assertEquals(rotation, compositor.items.first().rotationDegrees)
+    }
+
+    @Test
+    fun `auto slant finds the line at its own angle and draws it back along the slant`() {
+        val compositor = CapturingCompositor()
+        val result = runBlocking {
+            pipeline(compositor).process(
+                page(degrees = 20.0),
+                PipelineOptions(
+                    script = SourceScript.LATIN,
+                    autoSlant = true,
+                    maxTileHeight = 180,
+                    sfxSensitivity = com.manhwatranslate.core.scan.SfxSensitivity.OFF,
+                ),
+            )
+        }
+
+        assertEquals(1, result.regions.size, "the slanted line should be found without a fixed angle")
+        val region = result.regions.first()
+        // The angle the line is drawn at, not its mirror image: the translation has to run along
+        // the original line, which goes down to the right for a positive angle.
+        assertTrue(abs(region.rotationDegrees - 20f) < 4f, "rotation reported as ${region.rotationDegrees}")
+        assertTrue(
+            region.uprightWidthPx > region.uprightHeightPx,
+            "a turned line is wider than it is tall, got ${region.uprightWidthPx}x${region.uprightHeightPx}",
+        )
+        assertEquals(1, compositor.items.size)
+        assertEquals(region.rotationDegrees, compositor.items.first().rotationDegrees)
+        assertTrue(
+            compositor.items.first().layout.box.centerX == region.box.centerX &&
+                compositor.items.first().layout.box.centerY == region.box.centerY,
+            "the block must be laid out around the line it replaces",
+        )
+    }
+
+    @Test
+    fun `auto slant invents nothing on level lettering`() {
+        val result = runBlocking {
+            pipeline(
+                compositor = CapturingCompositor(),
+                recognizer = OffsetAddingRecognizer,
+            ).process(
+                page(degrees = 0.0),
+                PipelineOptions(
+                    script = SourceScript.LATIN,
+                    autoSlant = true,
+                    maxTileHeight = 180,
+                    sfxSensitivity = com.manhwatranslate.core.scan.SfxSensitivity.OFF,
+                ),
+            )
+        }
+
+        assertEquals(1, result.regions.size)
+        assertEquals(0f, result.regions.first().rotationDegrees, 0.01f)
+    }
+
+    @Test
+    fun `the translation of a turned line is laid out in its upright box`() {
+        val slanted = TextRegion(
+            id = 0,
+            box = RectI(40, 60, 340, 220),
+            lines = listOf(TextLine(RectI(40, 60, 340, 220), "HELLO")),
+            text = "HELLO",
+            rotationDegrees = 20f,
+            uprightWidthPx = 300,
+            uprightHeightPx = 34,
+        )
+        val pipeline = pipeline(CapturingCompositor())
+        val layout = pipeline.layoutFor(slanted, "XIN CHAO", PipelineOptions(script = SourceScript.LATIN))
+
+        assertEquals(300, layout.box.width, "the layout must use the line's own width")
+        assertEquals(34, layout.box.height, "the layout must use the line's own height")
+        assertEquals(190, layout.box.centerX)
+        assertEquals(140, layout.box.centerY)
     }
 
     @Test

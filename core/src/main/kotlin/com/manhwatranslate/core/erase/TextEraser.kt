@@ -21,6 +21,11 @@ data class EraseOptions(
     val removeResidualInk: Boolean = true,
     /** Applies the seam colour correction on textured fills too, not just flat ones. */
     val seamCorrectDiffusion: Boolean = true,
+    /**
+     * How far off the paper-to-ink colour line a leftover pixel may sit and still be painted over
+     * as stray lettering. Colour marks of another hue stay on the page.
+     */
+    val inkResidualLimit: Float = InkAxis.DEFAULT_RESIDUAL_LIMIT,
 )
 
 data class EraseStats(
@@ -103,7 +108,12 @@ class TextEraser(
                 val index = y * width + x
                 if (mask.data[index].toInt() != 0) continue
                 if (!nearMask(mask, x, y, width, height)) continue
-                val pixel = pixels[(mask.top + y) * pageWidth + mask.left + x]
+                val pageIndex = (mask.top + y) * pageWidth + mask.left + x
+                val pixel = pixels[pageIndex]
+                val paper = surface.argbAt(x, y)
+                // A ghost of the lettering sits on the rim as a dark or coloured fringe. Seeding
+                // from it would push that colour into the patch and leave dots where letters were.
+                if (InkAxis.isInkLike(pixel, paper, mask.inkArgb, residualLimit = 40f)) continue
                 deltaR[index] = Colors.red(pixel) - surface.redAt(x, y)
                 deltaG[index] = Colors.green(pixel) - surface.greenAt(x, y)
                 deltaB[index] = Colors.blue(pixel) - surface.blueAt(x, y)
@@ -148,16 +158,24 @@ class TextEraser(
             }
         }
 
+        // The correction follows the grain around the patch; past this much it stops being grain
+        // and starts being a stain, so the pushed channel is held within a few levels of the fit.
+        val limit = 24f
         for (index in 0 until size) {
             if (mask.data[index].toInt() == 0) continue
             val x = index % width
             val y = index / width
             val pageIndex = (mask.top + y) * pageWidth + mask.left + x
             val pixel = pixels[pageIndex]
-            val red = (Colors.red(pixel) + deltaR[index]).toInt().coerceIn(0, 255)
-            val green = (Colors.green(pixel) + deltaG[index]).toInt().coerceIn(0, 255)
-            val blue = (Colors.blue(pixel) + deltaB[index]).toInt().coerceIn(0, 255)
-            pixels[pageIndex] = Colors.pack(Colors.alpha(pixel), red, green, blue)
+            val red = (Colors.red(pixel) + deltaR[index].coerceIn(-limit, limit)).toInt()
+            val green = (Colors.green(pixel) + deltaG[index].coerceIn(-limit, limit)).toInt()
+            val blue = (Colors.blue(pixel) + deltaB[index].coerceIn(-limit, limit)).toInt()
+            pixels[pageIndex] = Colors.pack(
+                Colors.alpha(pixel),
+                red.coerceIn(0, 255),
+                green.coerceIn(0, 255),
+                blue.coerceIn(0, 255),
+            )
         }
     }
 
@@ -185,7 +203,9 @@ class TextEraser(
                     val paper = surface.argbAt(x, y)
                     val paperDistance = Colors.distance(pixel, paper)
                     if (paperDistance <= 20f) continue
-                    if (Colors.distance(pixel, mask.inkArgb) >= paperDistance) continue
+                    // Only a pixel on the paper-to-ink line is lettering that survived the mask;
+                    // a coloured mark of another hue is part of the artwork and stays.
+                    if (!InkAxis.isInkLike(pixel, paper, mask.inkArgb, options.inkResidualLimit)) continue
                     pixels[pageIndex] = paper
                     changed++
                 }

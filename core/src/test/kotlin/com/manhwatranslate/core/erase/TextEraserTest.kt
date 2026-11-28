@@ -89,6 +89,65 @@ class TextEraserTest {
     }
 
     @Test
+    fun `a coloured mark in the bubble keeps its colour after the letters are erased`() {
+        val image = bubblePage()
+        for (y in 44 until 72) {
+            for (x in 60 until 88) {
+                val dx = (x - 74) / 14.0
+                val dy = (y - 58) / 14.0
+                if (dx * dx + dy * dy <= 1.0) image.set(x, y, Colors.opaque(206, 44, 60))
+            }
+        }
+        val textBox = RectI(29, 39, 171, 77)
+        val mask = requireNotNull(builder.build(image, region(textBox)))
+        TextEraser(EraseOptions()).erase(image, mask)
+
+        var red = 0
+        for (y in 46 until 70) {
+            for (x in 62 until 86) {
+                val pixel = image.get(x, y)
+                if (Colors.red(pixel) > 160 && Colors.green(pixel) < 110 && Colors.blue(pixel) < 120) red++
+            }
+        }
+        assertTrue(red > 150, "the red mark was painted over as if it were lettering ($red px left)")
+        assertTrue(Colors.luminance(image.get(160, 58)) > 200f, "the lettering beside it must still go")
+    }
+
+    @Test
+    fun `the patch leaves no coloured specks on a gradient bubble`() {
+        val width = 280
+        val height = 160
+        val image = ArgbImage(width, height, IntArray(width * height) { index ->
+            val x = index % width
+            val y = index / width
+            val shade = (246 - x * 18 / width - y * 10 / height).coerceIn(0, 255)
+            Colors.opaque(shade, (shade - 6).coerceAtLeast(0), (shade - 18).coerceAtLeast(0))
+        })
+        for (y in 50 until 110) {
+            for (x in 50 until 240) {
+                if (y % 24 < 14 && (x / 9) % 2 == 0) image.set(x, y, Colors.opaque(20, 20, 20))
+            }
+        }
+        val textBox = RectI(46, 46, 244, 114)
+        val mask = requireNotNull(builder.build(image, region(textBox)))
+        TextEraser(EraseOptions()).erase(image, mask)
+
+        var worstChroma = 0f
+        for (y in textBox.top + 4 until textBox.bottom - 4) {
+            for (x in textBox.left + 4 until textBox.right - 4) {
+                val pixel = image.get(x, y)
+                val shade = (246 - x * 18 / width - y * 10 / height).toFloat()
+                // How far the patch drifts from the walk of the bubble, per channel pair.
+                val redShift = Colors.red(pixel) - shade
+                val blueShift = Colors.blue(pixel) - (shade - 18)
+                val chroma = kotlin.math.abs(redShift - blueShift)
+                if (chroma > worstChroma) worstChroma = chroma
+            }
+        }
+        assertTrue(worstChroma < 18f, "the fill left a colour drift of $worstChroma levels")
+    }
+
+    @Test
     fun `erasing outside the mask never happens`() {
         val image = bubblePage()
         val mask = requireNotNull(builder.build(image, region()))
