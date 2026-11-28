@@ -59,7 +59,7 @@ class AppContainer(context: Context) {
     val imageStore = ImageStore(appContext)
     val projectStore = ProjectStore(appContext, imageStore)
     val fontStore = FontStore(appContext)
-    val measurer = AndroidTextMeasurer().apply { setCustomTypeface(fontStore.loadTypeface()) }
+    val measurer = AndroidTextMeasurer(appContext.assets).apply { setCustomTypeface(fontStore.loadTypeface()) }
     val compositor = CanvasPageCompositor(measurer)
     val adBlocker = AdBlocker.fromAssets(appContext)
     val mlKitRecognizer = MlKitTextRecognizer()
