@@ -137,10 +137,6 @@ private fun AppRoot(
                     onOpenPage = { pageId -> navController.navigate("editor/$pageId") },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenWebReader = { navController.navigate("web") },
-                    onSignIn = {
-                        homeViewModel.signIn()
-                    },
-                    onSignOut = { homeViewModel.signOut() },
                 )
             }
 

@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Manhwa Translate</string>
-    <!-- OAuth App client ID của GitHub (Settings > Developer settings > OAuth Apps). Dùng Device Flow nên không cần client secret. -->
-    <string name="github_oauth_client_id" translatable="false">YOUR_GITHUB_CLIENT_ID</string>
 </resources>

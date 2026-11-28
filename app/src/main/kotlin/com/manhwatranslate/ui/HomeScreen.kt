@@ -46,7 +46,6 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -90,7 +89,6 @@ import coil.compose.AsyncImage
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.model.TranslationStatus
 import com.manhwatranslate.data.AppSettings
-import com.manhwatranslate.data.UserProfile
 import com.manhwatranslate.data.SavedPage
 import com.manhwatranslate.ui.components.AccentPill
 import com.manhwatranslate.ui.components.AppLogo
@@ -123,8 +121,6 @@ fun HomeScreen(
     onOpenPage: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenWebReader: () -> Unit,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -177,8 +173,6 @@ fun HomeScreen(
         onDeletePage = { viewModel.deletePage(it) },
         onDeleteGroup = { viewModel.deleteGroup(it) },
         onCancelProcessing = { viewModel.cancel() },
-        onSignIn = onSignIn,
-        onSignOut = onSignOut,
     )
 }
 
@@ -194,8 +188,6 @@ internal fun HomeContent(
     onDeletePage: (String) -> Unit,
     onDeleteGroup: (String) -> Unit = {},
     onCancelProcessing: () -> Unit,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
 ) {
     // 0 = Trang chủ, 2 = Thư viện (Tab 1 mở Đọc web, Tab 3 mở Cài đặt)
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
@@ -228,9 +220,7 @@ internal fun HomeContent(
         topBar = {
             HomeHeader(
                 title = if (activeTab == 2) "Thư viện" else "Manhwa Translate",
-                user = state.user,
-                onSignIn = onSignIn,
-                onSignOut = onSignOut,
+                onOpenSettings = onOpenSettings,
                 onOpenWebReader = onOpenWebReader,
             )
         },
@@ -355,13 +345,10 @@ internal fun HomeContent(
 @Composable
 private fun HomeHeader(
     title: String,
-    user: UserProfile,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenWebReader: () -> Unit,
 ) {
     val accents = LocalAccents.current
-    var showAccount by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -378,40 +365,20 @@ private fun HomeHeader(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(
-                    if (user.isSignedIn) MaterialTheme.colorScheme.secondaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                )
-                .border(
-                    width = 1.5.dp,
-                    brush = Brush.linearGradient(listOf(accents.glowStart, accents.glowEnd)),
-                    shape = CircleShape,
-                )
-                .clickable { if (user.isSignedIn) showAccount = true else onSignIn() },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (user.isSignedIn && user.photoUrl.isNotBlank()) {
-                AsyncImage(
-                    model = user.photoUrl,
-                    contentDescription = "Tài khoản ${user.displayName}",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize(),
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Rounded.Person,
-                    contentDescription = if (user.isSignedIn) "Tài khoản" else "Đăng nhập GitHub",
-                    modifier = Modifier.size(20.dp),
-                    tint = if (user.isSignedIn) {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
+        IconButton(onClick = onOpenSettings) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.size(38.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "Cài đặt",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         Spacer(Modifier.width(4.dp))
@@ -435,38 +402,6 @@ private fun HomeHeader(
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
-    }
-
-    if (showAccount) {
-        AlertDialog(
-            onDismissRequest = { showAccount = false },
-            title = { Text("Tài khoản GitHub", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(user.displayName.ifBlank { user.username.ifBlank { "Người dùng GitHub" } }, fontWeight = FontWeight.Medium)
-                    if (user.username.isNotBlank()) {
-                        Text("@${user.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (user.email.isNotBlank()) {
-                        Text(user.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Text(
-                        "Đăng nhập GitHub giúp quản lý tài khoản và đồng bộ dữ liệu giữa các thiết bị.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAccount = false }) { Text("Đóng") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAccount = false
-                    onSignOut()
-                }) { Text("Đăng xuất", color = MaterialTheme.colorScheme.error) }
-            },
-        )
     }
 }
 
