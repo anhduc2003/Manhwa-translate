@@ -22,6 +22,10 @@ class ManhwaFontsTest {
         assertEquals("fonts/manhwa_sans_bold.ttf", bold)
         assertEquals("fonts/manhwa_sans_italic.ttf", italic)
         assertEquals("fonts/manhwa_sans_bold_italic.ttf", boldItalic)
+        assertEquals(
+            "fonts/manhwa_sans_black.ttf",
+            ManhwaFonts.assetFor(FontFamilyKind.SANS, FontWeightLevel.BLACK, italic = false),
+        )
     }
 
     @Test

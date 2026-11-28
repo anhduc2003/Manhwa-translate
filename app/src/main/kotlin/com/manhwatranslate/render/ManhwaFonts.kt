@@ -22,6 +22,7 @@ object ManhwaFonts {
     private const val SANS_BOLD = "manhwa_sans_bold.ttf"
     private const val SANS_ITALIC = "manhwa_sans_italic.ttf"
     private const val SANS_BOLD_ITALIC = "manhwa_sans_bold_italic.ttf"
+    private const val SANS_BLACK = "manhwa_sans_black.ttf"
     private const val SERIF_REGULAR = "manhwa_serif_regular.ttf"
     private const val SERIF_ITALIC = "manhwa_serif_italic.ttf"
     private const val DISPLAY = "manhwa_display.ttf"
@@ -38,7 +39,10 @@ object ManhwaFonts {
         family: FontFamilyKind,
         weight: FontWeightLevel,
         italic: Boolean,
-    ): String? = assetFor(family, weight.androidWeight >= FontWeightLevel.BOLD.androidWeight, italic)
+    ): String? = when {
+        family == FontFamilyKind.SANS && weight == FontWeightLevel.BLACK && !italic -> "$ASSET_DIR/$SANS_BLACK"
+        else -> assetFor(family, weight.androidWeight >= FontWeightLevel.BOLD.androidWeight, italic)
+    }
 
     /** Asset path of the face for [family], or null when that family is not ours. */
     fun assetFor(family: FontFamilyKind, heavy: Boolean, italic: Boolean): String? {
