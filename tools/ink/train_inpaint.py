@@ -24,6 +24,7 @@ class Pairs(Dataset):
         data = np.load(path)
         self.images = data["images"]
         self.masks = data["masks"]
+        self.papers = data["papers"]
         self.flip = flip
 
     def __len__(self):
@@ -32,6 +33,7 @@ class Pairs(Dataset):
     def __getitem__(self, index):
         image = self.images[index].astype(np.float32) / 255.0
         mask = self.masks[index].astype(np.float32)
+        paper = self.papers[index].astype(np.float32) / 255.0
         if self.flip:
             if np.random.random() < 0.5:
                 image, mask = image[:, ::-1], mask[:, ::-1]
@@ -40,7 +42,10 @@ class Pairs(Dataset):
             if np.random.random() < 0.3:
                 image = np.clip(image * np.random.uniform(0.9, 1.1), 0, 1)
         hidden = image * (1.0 - mask)[:, :, None]
-        stacked = np.concatenate([hidden, mask[:, :, None]], axis=2)
+        # The paper colour rides along as three constant planes: the network then never has to guess
+        # which colour the hole should be, only how the background varies across it.
+        planes = np.broadcast_to(paper.reshape(1, 1, 3), image.shape)
+        stacked = np.concatenate([hidden, mask[:, :, None], planes], axis=2)
         return (
             torch.from_numpy(np.ascontiguousarray(stacked.transpose(2, 0, 1))),
             torch.from_numpy(np.ascontiguousarray(image.transpose(2, 0, 1))),
@@ -62,9 +67,9 @@ def block(cin, cout):
 class FillNet(nn.Module):
     """Three-level U-Net: sees the patch, the hole, and enough context to continue a gradient."""
 
-    def __init__(self, base=24):
+    def __init__(self, base=32):
         super().__init__()
-        self.down1 = block(4, base)
+        self.down1 = block(7, base)
         self.down2 = block(base, base * 2)
         self.down3 = block(base * 2, base * 4)
         self.pool = nn.MaxPool2d(2)
@@ -107,10 +112,16 @@ def main():
 
     def loss_fn(pred, target, mask):
         hole = (pred - target).abs().mean(dim=1)
-        weight = mask.mean().clamp(min=0.05)
         inside = (hole * mask).sum() / (mask.sum() + 1e-6)
         overall = hole.mean()
-        return inside + 0.3 * overall + 0.2 * gradient(pred), inside, overall
+        # A hole that comes back the wrong colour is the failure people actually see, so the mean
+        # colour of the filled area is scored too, not just its pixels.
+        weight = mask.unsqueeze(1)
+        count = weight.sum(dim=(2, 3)).clamp(min=1e-6)
+        pred_mean = (pred * weight).sum(dim=(2, 3)) / count
+        target_mean = (target * weight).sum(dim=(2, 3)) / count
+        colour = (pred_mean - target_mean).abs().mean()
+        return inside + 0.3 * overall + 0.2 * gradient(pred) + 0.5 * colour, inside, overall
 
     best = float("inf")
     for epoch in range(1, epochs + 1):
