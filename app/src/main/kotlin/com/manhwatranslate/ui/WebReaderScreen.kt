@@ -166,7 +166,9 @@ fun WebReaderScreen(
     var autoPaused by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // The reading page stays in view: the sheet opens at its half height and expands on a drag,
+    // instead of covering the whole chapter the moment it is opened.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     LaunchedEffect(Unit) {
         viewModel.onApplyImage = { index, url ->
@@ -792,21 +794,21 @@ private fun WebSettingsSheet(
             .verticalScroll(rememberScrollState())
             .background(palette.Background)
             .padding(horizontal = 16.dp)
-            .padding(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         // Tiêu đề thay cho TopAppBar vì đây là ModalBottomSheet
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 2.dp),
+                .padding(top = 0.dp, bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(9.dp))
                     .background(palette.PrimaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
@@ -814,14 +816,14 @@ private fun WebSettingsSheet(
                     imageVector = Icons.Rounded.Tune,
                     contentDescription = null,
                     tint = palette.Primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
             Text(
                 text = "Cài đặt trình đọc",
-                style = MaterialTheme.typography.titleMedium.copy(
+                style = MaterialTheme.typography.titleSmall.copy(
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                 ),
                 color = palette.TextPrimary,
                 modifier = Modifier.weight(1f),
@@ -829,7 +831,7 @@ private fun WebSettingsSheet(
             IconButton(
                 onClick = onClose,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.06f)),
             ) {
@@ -837,7 +839,7 @@ private fun WebSettingsSheet(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = "Đóng",
                     tint = palette.TextPrimary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(17.dp),
                 )
             }
         }
