@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.data.AppSettings
@@ -60,6 +61,26 @@ class AppContainer(context: Context) {
     val projectStore = ProjectStore(appContext, imageStore)
     val fontStore = FontStore(appContext)
     val measurer = AndroidTextMeasurer(appContext.assets).apply { setCustomTypeface(fontStore.loadTypeface()) }
+
+    init {
+        // The reader can pick any face from the bundled pack; load it once so a page never
+        // redraws with a different lettering than the one chosen in the settings.
+        appScope.launch {
+            settingsRepository.settings.collect { settings ->
+                val file = settings.bundledFont.takeIf { it.isNotBlank() }
+                measurer.setBundledTypeface(
+                    file?.let {
+                        runCatching {
+                            android.graphics.Typeface.createFromAsset(
+                                appContext.assets,
+                                "${com.manhwatranslate.core.layout.FontLibrary.ASSET_DIR}/$it",
+                            )
+                        }.getOrNull()
+                    },
+                )
+            }
+        }
+    }
     val compositor = CanvasPageCompositor(measurer)
     val adBlocker = AdBlocker.fromAssets(appContext)
     val mlKitRecognizer = MlKitTextRecognizer()

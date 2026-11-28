@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +100,7 @@ import com.manhwatranslate.core.erase.EraseMode
 import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.layout.FontWeightLevel
+import com.manhwatranslate.core.layout.FontLibrary
 import com.manhwatranslate.core.layout.ManhwaFonts
 import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.model.SourceScript
@@ -205,6 +207,7 @@ private enum class SettingsSheet {
     API_KEY,
     LIBRE_SERVER,
     TYPOGRAPHY,
+    FONT_LIBRARY,
     ADVANCED,
     ABOUT,
 }
@@ -542,6 +545,17 @@ internal fun SettingsContent(
                     onUpdate = onUpdate,
                     onPickFont = onPickFont,
                     onClearFont = onClearFont,
+                    onOpenLibrary = { activeSheet = SettingsSheet.FONT_LIBRARY },
+                    onClose = { activeSheet = null },
+                )
+
+                SettingsSheet.FONT_LIBRARY -> FontLibrarySheet(
+                    palette = palette,
+                    selected = settings.bundledFont,
+                    onSelect = { file ->
+                        onUpdate { it.copy(bundledFont = file, fontMode = FontMode.CUSTOM) }
+                        activeSheet = null
+                    },
                     onClose = { activeSheet = null },
                 )
 
@@ -1863,6 +1877,7 @@ private fun TypographySheet(
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     onPickFont: () -> Unit,
     onClearFont: () -> Unit,
+    onOpenLibrary: () -> Unit,
     onClose: () -> Unit,
 ) {
     val fontModes = listOf(
@@ -1900,7 +1915,7 @@ private fun TypographySheet(
             selected = settings.fontMode,
             onSelect = { mode -> onUpdate { it.copy(fontMode = mode) } },
         )
-        FontSampleCard(palette = palette, mode = settings.fontMode)
+        FontSampleCard(palette = palette, mode = settings.fontMode, bundledFont = settings.bundledFont)
         Text(
             text = "Bộ font truyện tranh có sẵn trong app: mỗi bong bóng tự lấy kiểu chữ khớp với " +
                 "chữ gốc — nét mảnh hay đậm, nghiêng, hay kiểu hét trên tiêu đề.",
@@ -1911,6 +1926,18 @@ private fun TypographySheet(
 
         if (settings.fontMode == FontMode.CUSTOM) {
             MinimalSettingsCard(palette) {
+                MinimalSettingRow(
+                    palette = palette,
+                    icon = Icons.Outlined.AutoAwesome,
+                    title = "Bộ font có sẵn trong app",
+                    value = settings.bundledFont
+                        .takeIf { it.isNotBlank() }
+                        ?.let { file -> FontLibrary.face(file)?.displayName ?: file }
+                        ?: "Chưa chọn font nào",
+                    boxedIcon = false,
+                    onClick = onOpenLibrary,
+                )
+                CardHairlineDivider(palette)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1918,7 +1945,7 @@ private fun TypographySheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Font tuỳ chỉnh (.ttf / .otf)", color = palette.textPrimary, fontSize = 14.5.sp)
+                        Text("Hoặc tải font của bạn (.ttf / .otf)", color = palette.textPrimary, fontSize = 14.5.sp)
                         Text(
                             text = settings.customFontName.ifBlank { "Chưa tải font nào" },
                             color = palette.textSecondary,
@@ -1946,8 +1973,75 @@ private fun TypographySheet(
 }
 
 /** Shows the chosen lettering on a real Vietnamese sample, so the choice is visible. */
+/** Every face that ships with the app, so the pack is browsable instead of hidden. */
 @Composable
-private fun FontSampleCard(palette: SettingsPalette, mode: FontMode) {
+private fun FontLibrarySheet(
+    palette: SettingsPalette,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 12.dp),
+    ) {
+        SheetHeader(palette, "Bộ font có sẵn (${FontLibrary.faces.size})", onClose)
+        Text(
+            text = "Chọn một font cho cả trang dịch. Để chế độ “Theo tranh” nếu muốn app tự chọn kiểu chữ theo từng bong bóng.",
+            color = palette.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(vertical = 10.dp),
+        )
+        LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+            items(FontLibrary.faces, key = { it.file }) { face ->
+                val isSelected = face.file == selected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelect(face.file) }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = face.displayName,
+                            color = if (isSelected) palette.accentPurple else palette.textPrimary,
+                            fontSize = 14.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = buildString {
+                                append(face.weightLabel())
+                                if (face.italic) append(" · nghiêng")
+                            },
+                            color = palette.textSecondary,
+                            fontSize = 11.5.sp,
+                        )
+                    }
+                    if (isSelected) {
+                        Icon(Icons.Outlined.Check, contentDescription = null, tint = palette.accentPurple)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun com.manhwatranslate.core.layout.FontFace.weightLabel(): String = when {
+    weight >= 900 -> "rất đậm"
+    weight >= 700 -> "đậm"
+    weight <= 300 -> "mảnh"
+    else -> "thường"
+}
+
+@Composable
+private fun FontSampleCard(palette: SettingsPalette, mode: FontMode, bundledFont: String = "") {
     val assets = LocalContext.current.assets
     val family = when (mode) {
         FontMode.AUTO -> FontFamilyKind.SANS
@@ -1957,7 +2051,10 @@ private fun FontSampleCard(palette: SettingsPalette, mode: FontMode) {
         FontMode.MONOSPACE -> FontFamilyKind.MONOSPACE
         FontMode.CUSTOM -> FontFamilyKind.CUSTOM
     }
-    val sampleFamily = ManhwaFonts.sampleAsset(family)
+    val samplePath = FontLibrary.face(bundledFont.takeIf { mode == FontMode.CUSTOM }.orEmpty())
+        ?.assetPath
+        ?: ManhwaFonts.sampleAsset(family)
+    val sampleFamily = samplePath
         ?.let { path -> runCatching { FontFamily(Font(path, assets)) }.getOrNull() }
         ?: FontFamily.Default
 
