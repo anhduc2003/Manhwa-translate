@@ -43,6 +43,73 @@ class TextEraserTest {
         }
     }
 
+    /** Stands in for the trained fill: paints the masked pixels magenta, leaves the rest alone. */
+    private fun filler(paint: Int = Colors.opaque(255, 0, 255)) = object : BackgroundFiller {
+        override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage {
+            val out = crop.copy()
+            for (y in 0 until mask.height) {
+                for (x in 0 until mask.width) {
+                    if (mask.at(x, y)) out.set(mask.left + x, mask.top + y, paint)
+                }
+            }
+            return out
+        }
+    }
+
+    @Test
+    fun `model mode repaints only the pixels the mask marks`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val outside = image.get(5, 5)
+        val stats = TextEraser(EraseOptions(mode = EraseMode.MODEL), filler()).erase(image, mask)
+        assertEquals(EraseMode.MODEL, stats.mode)
+        assertTrue(stats.pixelsErased > 0)
+        for (y in 0 until mask.height) {
+            for (x in 0 until mask.width) {
+                if (!mask.at(x, y)) continue
+                assertEquals(Colors.opaque(255, 0, 255), image.get(mask.left + x, mask.top + y))
+            }
+        }
+        assertEquals(outside, image.get(5, 5), "pixels outside the mask must not move")
+    }
+
+    @Test
+    fun `auto mode prefers the model when one is available`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val stats = TextEraser(EraseOptions(mode = EraseMode.AUTO), filler()).erase(image, mask)
+        assertEquals(EraseMode.MODEL, stats.mode)
+    }
+
+    @Test
+    fun `a filler that cannot run falls back to the surface fill`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val silent = object : BackgroundFiller {
+            override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage? = null
+        }
+        val stats = TextEraser(EraseOptions(mode = EraseMode.MODEL), silent).erase(image, mask)
+        assertTrue(stats.pixelsErased > 0)
+        for (y in 40 until 76) {
+            for (x in 30 until 170) {
+                assertTrue(Colors.luminance(image.get(x, y)) > 200f, "pixel ($x,$y) still dark")
+            }
+        }
+    }
+
+    @Test
+    fun `a filler that throws falls back too`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val broken = object : BackgroundFiller {
+            override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage? =
+                throw IllegalStateException("no model")
+        }
+        val stats = TextEraser(EraseOptions(mode = EraseMode.MODEL), broken).erase(image, mask)
+        assertTrue(stats.pixelsErased > 0)
+        assertTrue(Colors.luminance(image.get(100, 58)) > 200f)
+    }
+
     @Test
     fun `auto mode chooses solid for flat bubbles`() {
         val image = bubblePage()

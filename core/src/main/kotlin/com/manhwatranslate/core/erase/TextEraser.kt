@@ -1,5 +1,6 @@
 package com.manhwatranslate.core.erase
 
+import com.manhwatranslate.core.geometry.RectI
 import com.manhwatranslate.core.image.ArgbImage
 import com.manhwatranslate.core.image.Colors
 
@@ -10,6 +11,8 @@ enum class EraseMode {
     SOLID,
     /** Grow the surrounding colours into the letters (nearest-neighbour diffusion). */
     DIFFUSION,
+    /** Rebuild the hidden background with the trained fill model, when one is available. */
+    MODEL,
 }
 
 data class EraseOptions(
@@ -34,25 +37,18 @@ data class EraseStats(
  */
 class TextEraser(
     private val options: EraseOptions = EraseOptions(),
+    /** Trained fill; without it [EraseMode.MODEL] and [EraseMode.AUTO] use the surface fit. */
+    private val filler: BackgroundFiller? = null,
 ) {
 
     fun erase(target: ArgbImage, mask: TextMask): EraseStats {
         val mode = resolveMode(mask)
-        val pixels = target.pixels
-        val width = mask.width
         var erased = 0
         val surface = mask.surface
 
         when (mode) {
             EraseMode.SOLID -> {
-                for (index in mask.data.indices) {
-                    if (mask.data[index].toInt() == 0) continue
-                    val x = index % width
-                    val y = index / width
-                    val color = surface?.argbAt(x, y) ?: mask.backgroundArgb
-                    pixels[(mask.top + y) * target.width + mask.left + x] = color
-                    erased++
-                }
+                erased = fillWithSurface(target, mask, surface)
                 if (options.matchBackground && surface != null) applySeamCorrection(target, mask, surface)
                 if (options.removeResidualInk) erased += eraseResidualInk(target, mask)
             }
@@ -64,19 +60,94 @@ class TextEraser(
                 }
                 if (options.removeResidualInk) erased += eraseResidualInk(target, mask)
             }
+            EraseMode.MODEL -> {
+                erased = fillWithModel(target, mask)
+                if (erased == 0) {
+                    erased = fillWithSurface(target, mask, surface)
+                    if (options.matchBackground && surface != null) applySeamCorrection(target, mask, surface)
+                    if (options.removeResidualInk) erased += eraseResidualInk(target, mask)
+                }
+            }
             EraseMode.AUTO -> Unit
         }
 
-        return EraseStats(mode, erased, usedSurface = surface != null && mode == EraseMode.SOLID)
+        return EraseStats(
+            mode,
+            erased,
+            usedSurface = surface != null && (mode == EraseMode.SOLID || mode == EraseMode.MODEL),
+        )
+    }
+
+    private companion object {
+        /** Real surroundings handed to the model around the region, so it can continue gradients. */
+        const val MODEL_CONTEXT = 24
     }
 
     private fun resolveMode(mask: TextMask): EraseMode = when (options.mode) {
-        EraseMode.AUTO -> if (mask.backgroundContrast <= options.solidContrastThreshold) {
-            EraseMode.SOLID
-        } else {
-            EraseMode.DIFFUSION
+        EraseMode.AUTO -> when {
+            filler != null -> EraseMode.MODEL
+            mask.backgroundContrast <= options.solidContrastThreshold -> EraseMode.SOLID
+            else -> EraseMode.DIFFUSION
         }
         else -> options.mode
+    }
+
+    /** Paints the fitted surface over the letters; the fallback when the model cannot run. */
+    private fun fillWithSurface(target: ArgbImage, mask: TextMask, surface: BackgroundSurface?): Int {
+        val pixels = target.pixels
+        val width = mask.width
+        var erased = 0
+        for (index in mask.data.indices) {
+            if (mask.data[index].toInt() == 0) continue
+            val x = index % width
+            val y = index / width
+            pixels[(mask.top + y) * target.width + mask.left + x] = surface?.argbAt(x, y) ?: mask.backgroundArgb
+            erased++
+        }
+        return erased
+    }
+
+    /**
+     * Hands the region and a margin of real surroundings to the model and keeps only the pixels the
+     * mask marks, so artwork the mask never covered stays exactly as it was.
+     */
+    private fun fillWithModel(target: ArgbImage, mask: TextMask): Int {
+        val model = filler ?: return 0
+        val context = MODEL_CONTEXT
+        val rect = RectI(
+            mask.left - context,
+            mask.top - context,
+            mask.right + context,
+            mask.bottom + context,
+        ).clamped(target.width, target.height) ?: return 0
+        val crop = target.crop(rect)
+        val local = TextMask(
+            left = mask.left - rect.left,
+            top = mask.top - rect.top,
+            width = mask.width,
+            height = mask.height,
+            data = mask.data,
+            backgroundArgb = mask.backgroundArgb,
+            backgroundContrast = mask.backgroundContrast,
+            inkArgb = mask.inkArgb,
+            surface = mask.surface,
+            metrics = mask.metrics,
+        )
+        val rebuilt = try {
+            model.fill(crop, local)
+        } catch (error: Throwable) {
+            null
+        } ?: return 0
+        if (rebuilt.width != crop.width || rebuilt.height != crop.height) return 0
+        var erased = 0
+        for (y in 0 until mask.height) {
+            for (x in 0 until mask.width) {
+                if (!mask.at(x, y)) continue
+                target.set(mask.left + x, mask.top + y, rebuilt.get(local.left + x, local.top + y))
+                erased++
+            }
+        }
+        return erased
     }
 
     /**

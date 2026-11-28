@@ -9,6 +9,7 @@ import com.manhwatranslate.core.pipeline.PipelineOptions
 import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.core.pipeline.TranslationPipeline
 import com.manhwatranslate.core.render.PageCompositor
+import com.manhwatranslate.core.erase.BackgroundFiller
 import com.manhwatranslate.core.scan.ImageTiler
 import com.manhwatranslate.core.scan.TextDetector
 import com.manhwatranslate.core.translate.TranslationProvider
@@ -30,6 +31,8 @@ class TranslationEngine(
     private val backupRecognizer: TileRecognizer? = null,
     /** The trained text detector, used only when the settings ask for missed lettering. */
     private val textDetector: TextDetector? = null,
+    /** Trained background fill; without it the eraser keeps its own surface fit. */
+    private val backgroundFiller: BackgroundFiller? = null,
 ) {
 
     suspend fun processPage(
@@ -47,6 +50,7 @@ class TranslationEngine(
             compositor = compositor,
             backupRecognizer = backupRecognizer,
             textDetector = textDetector,
+            backgroundFiller = backgroundFiller,
         )
         val options = settings.toPipelineOptions().copy(
             maxTileHeight = tileHeightFor(page),
@@ -101,6 +105,7 @@ class TranslationEngine(
             compositor = compositor,
             backupRecognizer = backupRecognizer,
             textDetector = textDetector,
+            backgroundFiller = backgroundFiller,
         )
         return pipeline.recompose(cleaned, regions, translations, options)
     }

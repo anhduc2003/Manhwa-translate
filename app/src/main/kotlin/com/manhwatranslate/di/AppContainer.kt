@@ -30,6 +30,7 @@ import com.manhwatranslate.translate.OpenAiTranslationProvider
 import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.vision.MlKitTextRecognizer
+import com.manhwatranslate.vision.OnnxBackgroundFiller
 import com.manhwatranslate.vision.OnnxTextDetector
 import com.manhwatranslate.web.AdBlocker
 import com.manhwatranslate.vision.PaddleOcrRecognizer
@@ -68,6 +69,9 @@ class AppContainer(context: Context) {
     /** Loaded on first use, so a reader that never enables it pays nothing for the model. */
     private val textDetector by lazy { OnnxTextDetector(appContext) }
 
+    /** Loaded on first use: a page that never needs the model never pays for loading it. */
+    private val backgroundFiller by lazy { OnnxBackgroundFiller(appContext) }
+
     fun recognizerFor(settings: AppSettings): TileRecognizer = when (settings.ocrProvider) {
         OcrProviderType.ML_KIT -> mlKitRecognizer
         OcrProviderType.PADDLE_OCR -> PaddleOcrRecognizer(
@@ -83,6 +87,7 @@ class AppContainer(context: Context) {
         compositor = compositor,
         backupRecognizer = mlKitRecognizer,
         textDetector = textDetector,
+        backgroundFiller = backgroundFiller,
         providerResolver = { settings -> providerFor(settings) },
         backupsResolver = { settings -> backupsFor(settings) },
     )

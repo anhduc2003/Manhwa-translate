@@ -1,5 +1,6 @@
 package com.manhwatranslate.core.pipeline
 
+import com.manhwatranslate.core.erase.BackgroundFiller
 import com.manhwatranslate.core.erase.EraseMode
 import com.manhwatranslate.core.erase.EraseOptions
 import com.manhwatranslate.core.erase.TextEraser
@@ -92,6 +93,8 @@ class TranslationPipeline(
     private val backupRecognizer: TileRecognizer? = null,
     /** Second pair of eyes for lettering the recognizer skipped; see [PipelineOptions.detectMissedText]. */
     private val textDetector: TextDetector? = null,
+    /** Rebuilds the background behind erased lettering; without it the fitted surface is used. */
+    private val backgroundFiller: BackgroundFiller? = null,
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
     private var activeRecognizer: TileRecognizer = recognizer
@@ -698,6 +701,7 @@ class TranslationPipeline(
         val working = page.copy()
         val eraser = TextEraser(
             EraseOptions(mode = options.eraseMode, matchBackground = options.matchBackgroundColor),
+            filler = backgroundFiller,
         )
         val measured = ArrayList<TextRegion>(kept.size)
         for (region in kept) {
