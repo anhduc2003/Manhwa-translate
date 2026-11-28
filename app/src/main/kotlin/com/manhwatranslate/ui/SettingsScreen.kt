@@ -2207,6 +2207,7 @@ private fun AdvancedTuningSheet(
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 val modes = listOf(
                     EraseMode.AUTO to "Tự động",
+                    EraseMode.MODEL to "AI vá nền",
                     EraseMode.SOLID to "Tô nền",
                     EraseMode.DIFFUSION to "Lan màu",
                 )

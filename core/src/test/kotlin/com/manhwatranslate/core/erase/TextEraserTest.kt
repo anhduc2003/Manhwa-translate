@@ -43,6 +43,143 @@ class TextEraserTest {
         }
     }
 
+    /** Stands in for the trained fill: paints the masked pixels its own colour, leaves the rest alone. */
+    private fun filler(paint: Int = Colors.opaque(232, 226, 240)) = object : BackgroundFiller {
+        override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage {
+            val out = crop.copy()
+            for (y in 0 until mask.height) {
+                for (x in 0 until mask.width) {
+                    if (mask.at(x, y)) out.set(mask.left + x, mask.top + y, paint)
+                }
+            }
+            return out
+        }
+    }
+
+    @Test
+    fun `model mode repaints only the pixels the mask marks`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val outside = image.get(5, 5)
+        val stats = TextEraser(EraseOptions(mode = EraseMode.MODEL), filler()).erase(image, mask)
+        assertEquals(EraseMode.MODEL, stats.mode)
+        assertTrue(stats.pixelsErased > 0)
+        for (y in 0 until mask.height) {
+            for (x in 0 until mask.width) {
+                if (!mask.at(x, y)) continue
+                val pixel = image.get(mask.left + x, mask.top + y)
+                assertTrue(
+                    Colors.luminance(pixel) > 200f,
+                    "masked pixel (${mask.left + x},${mask.top + y}) was not repainted",
+                )
+            }
+        }
+        assertEquals(outside, image.get(5, 5), "pixels outside the mask must not move")
+    }
+
+    @Test
+    fun `a fill that paints the wrong colour is slid back to the background`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val wrong = object : BackgroundFiller {
+            override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage {
+                val out = crop.copy()
+                for (y in 0 until mask.height) {
+                    for (x in 0 until mask.width) {
+                        if (mask.at(x, y)) out.set(mask.left + x, mask.top + y, Colors.opaque(90, 60, 120))
+                    }
+                }
+                return out
+            }
+        }
+        TextEraser(EraseOptions(mode = EraseMode.MODEL), wrong).erase(image, mask)
+        for (y in 40 until 76) {
+            for (x in 30 until 170) {
+                val pixel = image.get(x, y)
+                assertTrue(
+                    Colors.luminance(pixel) > 200f,
+                    "pixel ($x,$y) kept the model's colour ${Colors.red(pixel)},${Colors.green(pixel)},${Colors.blue(pixel)}",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a fill that is the right texture but the wrong brightness is slid back into place`() {
+        val image = ArgbImage.filled(200, 120, Colors.opaque(60, 90, 120))
+        for (y in 40 until 76) {
+            for (x in 30 until 170) {
+                image.set(x, y, Colors.opaque(250, 250, 250))
+            }
+        }
+        val mask = requireNotNull(builder.build(image, region()))
+        val bright = object : BackgroundFiller {
+            override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage {
+                val out = crop.copy()
+                for (y in 0 until mask.height) {
+                    for (x in 0 until mask.width) {
+                        if (mask.at(x, y)) out.set(mask.left + x, mask.top + y, Colors.opaque(96, 126, 156))
+                    }
+                }
+                return out
+            }
+        }
+        TextEraser(EraseOptions(mode = EraseMode.MODEL), bright).erase(image, mask)
+        var red = 0
+        var green = 0
+        var blue = 0
+        var count = 0
+        for (y in 40 until 76) {
+            for (x in 30 until 170) {
+                val pixel = image.get(x, y)
+                red += Colors.red(pixel)
+                green += Colors.green(pixel)
+                blue += Colors.blue(pixel)
+                count++
+            }
+        }
+        assertEquals(60.0, red.toDouble() / count, 6.0)
+        assertEquals(90.0, green.toDouble() / count, 6.0)
+        assertEquals(120.0, blue.toDouble() / count, 6.0)
+    }
+
+    @Test
+    fun `auto mode prefers the model when one is available`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val stats = TextEraser(EraseOptions(mode = EraseMode.AUTO), filler()).erase(image, mask)
+        assertEquals(EraseMode.MODEL, stats.mode)
+    }
+
+    @Test
+    fun `a filler that cannot run falls back to the surface fill`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val silent = object : BackgroundFiller {
+            override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage? = null
+        }
+        val stats = TextEraser(EraseOptions(mode = EraseMode.MODEL), silent).erase(image, mask)
+        assertTrue(stats.pixelsErased > 0)
+        for (y in 40 until 76) {
+            for (x in 30 until 170) {
+                assertTrue(Colors.luminance(image.get(x, y)) > 200f, "pixel ($x,$y) still dark")
+            }
+        }
+    }
+
+    @Test
+    fun `a filler that throws falls back too`() {
+        val image = bubblePage()
+        val mask = requireNotNull(builder.build(image, region()))
+        val broken = object : BackgroundFiller {
+            override fun fill(crop: ArgbImage, mask: TextMask): ArgbImage? =
+                throw IllegalStateException("no model")
+        }
+        val stats = TextEraser(EraseOptions(mode = EraseMode.MODEL), broken).erase(image, mask)
+        assertTrue(stats.pixelsErased > 0)
+        assertTrue(Colors.luminance(image.get(100, 58)) > 200f)
+    }
+
     @Test
     fun `auto mode chooses solid for flat bubbles`() {
         val image = bubblePage()
