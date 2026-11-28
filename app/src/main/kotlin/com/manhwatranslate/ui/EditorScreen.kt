@@ -491,10 +491,16 @@ private fun RegionEditor(
     onApply: () -> Unit,
     onRetranslate: () -> Unit,
 ) {
+    val accents = LocalAccents.current
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        border = BorderStroke(
+            1.dp,
+            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                listOf(accents.glowStart, accents.glowEnd),
+            ),
+        ),
     ) {
         Column(
             modifier = Modifier
@@ -577,6 +583,10 @@ private fun RegionEditor(
                             .weight(1f)
                             .height(46.dp),
                         shape = MaterialTheme.shapes.small,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accents.heroButton,
+                            contentColor = accents.onHeroButton,
+                        ),
                     ) {
                         Icon(
                             Icons.Outlined.Check,

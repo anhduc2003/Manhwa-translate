@@ -26,39 +26,46 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.manhwatranslate.ui.components.AppLogo
-import com.manhwatranslate.ui.theme.Violet
+import com.manhwatranslate.ui.theme.LocalAccents
 
 @Composable
 fun SplashScreen(modifier: Modifier = Modifier) {
+    val accents = LocalAccents.current
     var started by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { started = true }
 
     val logoScale by animateFloatAsState(
-        targetValue = if (started) 1f else 0.6f,
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        targetValue = if (started) 1f else 0.65f,
+        animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+        label = "logoScale",
     )
     val logoAlpha by animateFloatAsState(
         targetValue = if (started) 1f else 0f,
-        animationSpec = tween(durationMillis = 700),
+        animationSpec = tween(durationMillis = 650),
+        label = "logoAlpha",
     )
     val textAlpha by animateFloatAsState(
         targetValue = if (started) 1f else 0f,
-        animationSpec = tween(durationMillis = 700, delayMillis = 250),
+        animationSpec = tween(durationMillis = 650, delayMillis = 220),
+        label = "textAlpha",
     )
 
-    val infinite = rememberInfiniteTransition()
+    val infinite = rememberInfiniteTransition(label = "splashPulse")
     val pulse by infinite.animateFloat(
-        initialValue = 0.6f,
+        initialValue = 0.72f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
+            animation = tween(950, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse,
         ),
+        label = "pulse",
     )
 
     Box(
@@ -67,6 +74,21 @@ fun SplashScreen(modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
+        // Quầng ánh sáng tím-hồng mềm phía sau logo
+        Box(
+            modifier = Modifier
+                .size(300.dp)
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            accents.heroMiddle.copy(alpha = 0.34f * pulse),
+                            accents.heroStart.copy(alpha = 0.14f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -76,17 +98,17 @@ fun SplashScreen(modifier: Modifier = Modifier) {
                 alpha = logoAlpha,
                 pulse = pulse,
             )
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(26.dp))
             Text(
                 text = "Manhwa Translate",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.graphicsLayer { alpha = textAlpha },
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Dịch truyện ngay trên máy",
+                text = "Dịch truyện trong một chạm",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.graphicsLayer { alpha = textAlpha },
@@ -97,20 +119,22 @@ fun SplashScreen(modifier: Modifier = Modifier) {
 
 @Composable
 private fun LogoMark(scale: Float, alpha: Float, pulse: Float) {
+    val accents = LocalAccents.current
     Box(
-        modifier = Modifier.size(140.dp),
+        modifier = Modifier.size(144.dp),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize()) {
             drawCircle(
-                color = Violet.copy(alpha = 0.18f * pulse),
+                brush = Brush.linearGradient(listOf(accents.glowStart, accents.glowEnd)),
                 radius = size.minDimension * 0.46f * pulse,
                 center = center,
-                style = Stroke(width = size.minDimension * 0.018f),
+                style = Stroke(width = size.minDimension * 0.02f),
+                alpha = 0.75f * pulse,
             )
         }
         AppLogo(
-            size = 124.dp,
+            size = 118.dp,
             modifier = Modifier.graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -119,3 +143,5 @@ private fun LogoMark(scale: Float, alpha: Float, pulse: Float) {
         )
     }
 }
+
+

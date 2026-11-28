@@ -18,15 +18,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val Terracotta = Color(0xFFB4463B)
-val TerracottaDeep = Color(0xFF7C2E27)
-val Violet = Color(0xFF6B4E9B)
+val Terracotta = Color(0xFFB54166)
+val TerracottaDeep = Color(0xFF7A285B)
+val Violet = Color(0xFF8B46FF)
 val Gold = Color(0xFFE0A458)
 val Paper = Color(0xFFFAF6F3)
 val Ink = Color(0xFF221C1A)
 val MutedInk = Color(0xFF6F625C)
 
-/** Colours the Material roles do not carry: the hero gradient and the highlight used on images. */
+/** Màu mở rộng ngoài bảng màu Material: Hero gradient, viền phát sáng, badge và bottom bar. */
 @Immutable
 data class AccentColors(
     val heroStart: Color,
@@ -38,43 +38,67 @@ data class AccentColors(
     val onHeroButton: Color,
     val selection: Color,
     val imageScrim: Color,
+    val glowStart: Color,
+    val glowEnd: Color,
+    val accentStart: Color,
+    val accentEnd: Color,
+    val statusSuccessBg: Color,
+    val statusSuccessText: Color,
+    val navBarBg: Color,
+    val navIndicator: Color,
 )
 
 private val LightAccents = AccentColors(
-    heroStart = Color(0xFFB4463B),
-    heroMiddle = Color(0xFF8E3B62),
-    heroEnd = Color(0xFF5B4795),
+    heroStart = Color(0xFF53338F),
+    heroMiddle = Color(0xFF8E336E),
+    heroEnd = Color(0xFFC44972),
     onHero = Color(0xFFFFFFFF),
-    onHeroMuted = Color(0xE6FFFFFF),
-    heroButton = Color(0xFFFFFFFF),
-    onHeroButton = Color(0xFFA63D33),
+    onHeroMuted = Color(0xE8FFFFFF),
+    heroButton = Color(0xFFFFF5F8),
+    onHeroButton = Color(0xFF4A152E),
     selection = Color(0xFFE0A458),
     imageScrim = Color(0x00000000),
+    glowStart = Color(0x668B46FF),
+    glowEnd = Color(0x55EC4899),
+    accentStart = Color(0xFF7C3AED),
+    accentEnd = Color(0xFFA855F7),
+    statusSuccessBg = Color(0xFFDCFCE7),
+    statusSuccessText = Color(0xFF15803D),
+    navBarBg = Color(0xF5FFFDFB),
+    navIndicator = Color(0xFFEDE2FF),
 )
 
 private val DarkAccents = AccentColors(
-    heroStart = Color(0xFF6E2A24),
-    heroMiddle = Color(0xFF552A41),
-    heroEnd = Color(0xFF362A5A),
-    onHero = Color(0xFFFBE9E5),
-    onHeroMuted = Color(0xD9FBE9E5),
-    heroButton = Color(0xFFF3E2DD),
-    onHeroButton = Color(0xFF5C1C15),
+    heroStart = Color(0xFF3E266B),
+    heroMiddle = Color(0xFF7A285B),
+    heroEnd = Color(0xFFB54166),
+    onHero = Color(0xFFFFFFFF),
+    onHeroMuted = Color(0xDDFCEEF4),
+    heroButton = Color(0xFFF7E4EA),
+    onHeroButton = Color(0xFF3B1325),
     selection = Color(0xFFF0C68B),
-    imageScrim = Color(0x33000000),
+    imageScrim = Color(0x26000000),
+    glowStart = Color(0x789C5CFF),
+    glowEnd = Color(0x59FF5E9C),
+    accentStart = Color(0xFF7E3FF2),
+    accentEnd = Color(0xFFA855F7),
+    statusSuccessBg = Color(0xFF153427),
+    statusSuccessText = Color(0xFF4ADE80),
+    navBarBg = Color(0xF515101A),
+    navIndicator = Color(0xFF42344D),
 )
 
-val LocalAccents = staticCompositionLocalOf { LightAccents }
+val LocalAccents = staticCompositionLocalOf { DarkAccents }
 
 private val LightColors = lightColorScheme(
-    primary = Terracotta,
+    primary = Color(0xFF7C3AED),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFF8DDD8),
-    onPrimaryContainer = Color(0xFF3F0F0A),
-    secondary = Violet,
+    primaryContainer = Color(0xFFEDE2FF),
+    onPrimaryContainer = Color(0xFF2B0E5C),
+    secondary = Color(0xFFDB2777),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFEAE2FA),
-    onSecondaryContainer = Color(0xFF241143),
+    secondaryContainer = Color(0xFFF3E8FF),
+    onSecondaryContainer = Color(0xFF3B146B),
     tertiary = Color(0xFF9A6A1F),
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFFFE7C4),
@@ -83,56 +107,56 @@ private val LightColors = lightColorScheme(
     onBackground = Ink,
     surface = Color(0xFFFFFDFB),
     onSurface = Ink,
-    surfaceVariant = Color(0xFFF2E9E4),
+    surfaceVariant = Color(0xFFF2EAF7),
     onSurfaceVariant = MutedInk,
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFFDF8F5),
-    surfaceContainer = Color(0xFFF7EFEA),
-    surfaceContainerHigh = Color(0xFFF1E7E1),
-    surfaceContainerHighest = Color(0xFFEADFD9),
-    outline = Color(0xFF9B8A83),
-    outlineVariant = Color(0xFFE7D9D2),
+    surfaceContainerLow = Color(0xFFFDF8FA),
+    surfaceContainer = Color(0xFFF7EFF6),
+    surfaceContainerHigh = Color(0xFFF0E6F2),
+    surfaceContainerHighest = Color(0xFFE9DCEB),
+    outline = Color(0xFF9B8A99),
+    outlineVariant = Color(0xFFE3D5E6),
     error = Color(0xFFB3261E),
     onError = Color.White,
     errorContainer = Color(0xFFF9DEDC),
     onErrorContainer = Color(0xFF410E0B),
-    inverseSurface = Color(0xFF332B28),
-    inverseOnSurface = Color(0xFFF9EFEA),
+    inverseSurface = Color(0xFF2A2130),
+    inverseOnSurface = Color(0xFFF9F1FA),
     scrim = Color(0xFF000000),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFF4A79C),
-    onPrimary = Color(0xFF4A1109),
-    primaryContainer = Color(0xFF6B231C),
-    onPrimaryContainer = Color(0xFFFFDAD4),
-    secondary = Color(0xFFCDB8F5),
-    onSecondary = Color(0xFF2C1547),
-    secondaryContainer = Color(0xFF432A63),
-    onSecondaryContainer = Color(0xFFEADDFF),
+    primary = Color(0xFFA86BFF),
+    onPrimary = Color(0xFF1E083D),
+    primaryContainer = Color(0xFF442473),
+    onPrimaryContainer = Color(0xFFF0E2FF),
+    secondary = Color(0xFFFF6B9E),
+    onSecondary = Color(0xFF470B24),
+    secondaryContainer = Color(0xFF2A1D38),
+    onSecondaryContainer = Color(0xFFE9D5FF),
     tertiary = Color(0xFFF0C68B),
     onTertiary = Color(0xFF3F2B00),
     tertiaryContainer = Color(0xFF5B4000),
     onTertiaryContainer = Color(0xFFFFE3B8),
     background = Color(0xFF0D0A0D),
-    onBackground = Color(0xFFF4E9E4),
-    surface = Color(0xFF1D171D),
-    onSurface = Color(0xFFF4E9E4),
-    surfaceVariant = Color(0xFF302730),
-    onSurfaceVariant = Color(0xFFCDBBB3),
-    surfaceContainerLowest = Color(0xFF090709),
-    surfaceContainerLow = Color(0xFF171217),
-    surfaceContainer = Color(0xFF221B22),
-    surfaceContainerHigh = Color(0xFF2B232B),
-    surfaceContainerHighest = Color(0xFF352C35),
-    outline = Color(0xFFA6958E),
-    outlineVariant = Color(0xFF4A3C44),
+    onBackground = Color(0xFFF6F1F8),
+    surface = Color(0xFF19131F),
+    onSurface = Color(0xFFF6F1F8),
+    surfaceVariant = Color(0xFF271E31),
+    onSurfaceVariant = Color(0xFFA99DB2),
+    surfaceContainerLowest = Color(0xFF09070B),
+    surfaceContainerLow = Color(0xFF140F19),
+    surfaceContainer = Color(0xFF1D1624),
+    surfaceContainerHigh = Color(0xFF261D2F),
+    surfaceContainerHighest = Color(0xFF32273D),
+    outline = Color(0xFF8C7D99),
+    outlineVariant = Color(0xFF3B2F47),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    inverseSurface = Color(0xFFF4E9E4),
-    inverseOnSurface = Color(0xFF332B28),
+    inverseSurface = Color(0xFFF4ECF7),
+    inverseOnSurface = Color(0xFF261E2B),
     scrim = Color(0xFF000000),
 )
 
@@ -140,8 +164,8 @@ private val AppShapes = Shapes(
     extraSmall = RoundedCornerShape(10.dp),
     small = RoundedCornerShape(14.dp),
     medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(30.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 private val Sans = FontFamily.SansSerif
@@ -149,17 +173,17 @@ private val Sans = FontFamily.SansSerif
 private val AppTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = Sans,
-        fontWeight = FontWeight.Black,
-        fontSize = 30.sp,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 28.sp,
         lineHeight = 34.sp,
-        letterSpacing = (-0.7).sp,
+        letterSpacing = (-0.5).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = Sans,
         fontWeight = FontWeight.Bold,
-        fontSize = 25.sp,
+        fontSize = 24.sp,
         lineHeight = 30.sp,
-        letterSpacing = (-0.4).sp,
+        letterSpacing = (-0.3).sp,
     ),
     headlineSmall = TextStyle(
         fontFamily = Sans,
@@ -184,7 +208,7 @@ private val AppTypography = Typography(
     titleSmall = TextStyle(
         fontFamily = Sans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
+        fontSize = 14.5.sp,
         lineHeight = 19.sp,
     ),
     bodyLarge = TextStyle(
@@ -215,16 +239,16 @@ private val AppTypography = Typography(
     labelMedium = TextStyle(
         fontFamily = Sans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 11.sp,
+        fontSize = 11.5.sp,
         lineHeight = 14.sp,
-        letterSpacing = 0.5.sp,
+        letterSpacing = 0.3.sp,
     ),
     labelSmall = TextStyle(
         fontFamily = Sans,
         fontWeight = FontWeight.Medium,
         fontSize = 10.5.sp,
         lineHeight = 13.sp,
-        letterSpacing = 0.4.sp,
+        letterSpacing = 0.3.sp,
     ),
 )
 

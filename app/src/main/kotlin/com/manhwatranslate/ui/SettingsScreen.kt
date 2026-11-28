@@ -900,7 +900,10 @@ private fun OcrProviderType.description(): String = when (this) {
 
 @Composable
 private fun StatusPill(text: String, positive: Boolean) {
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+    val accents = com.manhwatranslate.ui.theme.LocalAccents.current
+    val bg = if (positive) accents.statusSuccessBg else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (positive) accents.statusSuccessText else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(shape = CircleShape, color = bg) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -910,14 +913,14 @@ private fun StatusPill(text: String, positive: Boolean) {
                     Icons.Outlined.Check,
                     contentDescription = null,
                     modifier = Modifier.size(13.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = fg,
                 )
                 Spacer(Modifier.width(4.dp))
             }
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = fg,
             )
         }
     }

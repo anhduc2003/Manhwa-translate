@@ -10,7 +10,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,14 +29,21 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -42,23 +52,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.manhwatranslate.R
-
-/**
- * The shared visual grammar of the app: one top bar, one card, one row, one pill.
- * Screens compose these instead of styling Material components by hand, so spacing,
- * corner radii and type sizes stay identical everywhere.
- */
+import com.manhwatranslate.ui.theme.LocalAccents
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,12 +101,24 @@ fun AppTopBar(
         },
         navigationIcon = {
             if (onBack != null) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = "Quay lại",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.padding(start = 6.dp),
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(38.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Quay lại",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -109,7 +130,6 @@ fun AppTopBar(
     )
 }
 
-/** Small uppercase label that opens a block of content. */
 @Composable
 fun SectionTitle(
     text: String,
@@ -119,12 +139,12 @@ fun SectionTitle(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 2.dp),
+            .padding(top = 8.dp, bottom = 2.dp, start = 2.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
@@ -138,17 +158,25 @@ fun SectionTitle(
     }
 }
 
-/** A group of rows on one card, with a hairline border instead of a drop shadow. */
+/** Thẻ bo góc nền tối, hỗ trợ viền gradient phát sáng khi `glowBorder = true`. */
 @Composable
 fun GroupCard(
     modifier: Modifier = Modifier,
+    glowBorder: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val accents = LocalAccents.current
+    val shape = MaterialTheme.shapes.large
+    val border = if (glowBorder) {
+        BorderStroke(1.dp, Brush.horizontalGradient(listOf(accents.glowStart, accents.glowEnd)))
+    } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+    }
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = shape,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        border = border,
     ) {
         Column(content = content)
     }
@@ -160,12 +188,20 @@ fun IconTile(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSecondaryContainer,
     container: Color = MaterialTheme.colorScheme.secondaryContainer,
-    size: Dp = 40.dp,
+    size: Dp = 44.dp,
+    glowBorder: Boolean = true,
 ) {
+    val accents = LocalAccents.current
+    val shape = RoundedCornerShape(size * 0.32f)
     Surface(
         modifier = modifier.size(size),
-        shape = RoundedCornerShape(size * 0.32f),
+        shape = shape,
         color = container,
+        border = if (glowBorder) {
+            BorderStroke(1.dp, Brush.linearGradient(listOf(accents.glowStart, accents.glowEnd)))
+        } else {
+            null
+        },
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -178,7 +214,6 @@ fun IconTile(
     }
 }
 
-/** Tappable row: icon, one line of title, an optional short subtitle and a trailing value. */
 @Composable
 fun NavRow(
     icon: ImageVector,
@@ -204,6 +239,7 @@ fun NavRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -230,18 +266,15 @@ fun NavRow(
         if (showChevron) {
             Spacer(Modifier.width(2.dp))
             Icon(
-                Icons.Outlined.ExpandMore,
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(18.dp)
-                    .rotate(-90f),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
 }
 
-/** Row with a switch. The whole row is the touch target. */
 @Composable
 fun ToggleRow(
     title: String,
@@ -255,7 +288,7 @@ fun ToggleRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
@@ -279,11 +312,17 @@ fun ToggleRow(
             }
         }
         Spacer(Modifier.width(10.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
     }
 }
 
-/** Small rounded label: the current value of a setting, a provider name, a count. */
 @Composable
 fun Pill(
     text: String,
@@ -306,7 +345,58 @@ fun Pill(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .widthIn(max = maxWidth)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = 11.dp, vertical = 5.dp),
+        )
+    }
+}
+
+/** Nhãn gradient tím nổi bật (ví dụ: "LLM máy"). */
+@Composable
+fun AccentPill(
+    text: String,
+    modifier: Modifier = Modifier,
+    maxWidth: Dp = 140.dp,
+) {
+    val accents = LocalAccents.current
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(Brush.horizontalGradient(listOf(accents.accentStart, accents.accentEnd)))
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = maxWidth),
+        )
+    }
+}
+
+/** Nhãn trạng thái (ví dụ: "Đã hoàn thành" màu xanh lục). */
+@Composable
+fun StatusBadge(
+    text: String,
+    positive: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val accents = LocalAccents.current
+    val bg = if (positive) accents.statusSuccessBg else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (positive) accents.statusSuccessText else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = bg,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }
@@ -318,11 +408,10 @@ fun RowDivider(modifier: Modifier = Modifier, indent: Dp = 14.dp) {
             .fillMaxWidth()
             .padding(start = indent, end = 14.dp)
             .height(1.dp)
-            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
     )
 }
 
-/** Card whose body folds away, so long setting groups stay out of the way until needed. */
 @Composable
 fun ExpandableGroup(
     title: String,
@@ -337,7 +426,7 @@ fun ExpandableGroup(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
     ) {
         Column {
             Row(
@@ -381,7 +470,6 @@ fun ExpandableGroup(
     }
 }
 
-/** Short quiet line under a section. */
 @Composable
 fun HintText(text: String, modifier: Modifier = Modifier) {
     Text(
@@ -392,7 +480,6 @@ fun HintText(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Numbered step used in empty states: a small dot, a title and nothing else. */
 @Composable
 fun StepDot(index: Int, title: String, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -414,12 +501,93 @@ fun StepDot(index: Int, title: String, modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * The app icon's own mark — the same bubble, lines and sparkle the launcher icon draws, with its
- * tile left out — so the header and the splash cannot drift away from the icon. It goes through
- * the platform drawable rather than `painterResource`, which drops vector gradients and would leave
- * the mark flat.
- */
+/** Thanh điều hướng đáy 4 tab đồng bộ theo thiết kế mới. */
+@Composable
+fun ManhwaBottomNavBar(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accents = LocalAccents.current
+    val items = listOf(
+        Pair("Trang chủ", Icons.Rounded.Home),
+        Pair("Khám phá", Icons.Rounded.Explore),
+        Pair("Thư viện", Icons.Rounded.PhotoLibrary),
+        Pair("Cài đặt", Icons.Rounded.Settings),
+    )
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(accents.navBarBg)
+            .navigationBarsPadding(),
+    ) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            thickness = 1.dp,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items.forEachIndexed { index, (label, icon) ->
+                val selected = selectedIndex == index
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (selected) accents.navIndicator else Color.Transparent)
+                            .then(
+                                if (selected) {
+                                    Modifier.border(
+                                        1.dp,
+                                        Brush.horizontalGradient(listOf(accents.glowStart, accents.glowEnd)),
+                                        CircleShape,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(horizontal = 18.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = if (selected) {
+                                MaterialTheme.colorScheme.onBackground
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = label,
+                        fontSize = 11.5.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onBackground
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun AppLogo(size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -437,3 +605,5 @@ fun AppLogo(size: Dp, modifier: Modifier = Modifier) {
         drawIntoCanvas { canvas -> mark.draw(canvas.nativeCanvas) }
     }
 }
+
+

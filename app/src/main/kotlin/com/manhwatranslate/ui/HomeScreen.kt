@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,17 +20,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -39,22 +41,18 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CameraAlt
-import androidx.compose.material.icons.rounded.Explore
-import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,44 +69,52 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.manhwatranslate.core.model.TranslationProviderType
+import com.manhwatranslate.core.model.TranslationStatus
+import com.manhwatranslate.data.AppSettings
+import com.manhwatranslate.data.SavedPage
+import com.manhwatranslate.ui.components.AccentPill
+import com.manhwatranslate.ui.components.AppLogo
+import com.manhwatranslate.ui.components.GroupCard
+import com.manhwatranslate.ui.components.IconTile
+import com.manhwatranslate.ui.components.ManhwaBottomNavBar
+import com.manhwatranslate.ui.components.SectionTitle
+import com.manhwatranslate.ui.components.StatusBadge
+import com.manhwatranslate.ui.theme.LocalAccents
 import com.manhwatranslate.ui.theme.Motion
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// --- Home-only dark palette (the design is dark-first) ---
-private val BgDark = Color(0xFF100B12)
-private val CardSurface = Color(0xFF1B1420)
-private val CardBorderStart = Color(0x669C5CFF)
-private val CardBorderEnd = Color(0x44FF5E9C)
-private val HeroGradStart = Color(0xFF3E266B)
-private val HeroGradMid = Color(0xFF7A285B)
-private val HeroGradEnd = Color(0xFFB54166)
-private val PrimaryPillBg = Color(0xFFF7E4EA)
-private val PrimaryPillText = Color(0xFF3B1325)
-private val AccentPurple = Color(0xFF8B46FF)
-private val AccentPink = Color(0xFFFF6B9E)
-private val TextPrimary = Color(0xFFF6F1F8)
-private val TextSecondary = Color(0xFFA99DB2)
-private val StatusGreenBg = Color(0xFF153427)
-private val StatusGreenText = Color(0xFF4ADE80)
+private data class HistoryBatch(
+    val groupId: String,
+    val coverPage: SavedPage,
+    val totalPages: Int,
+    val latestTimestamp: Long,
+    val totalRegions: Int,
+    val isCompleted: Boolean,
+)
 
 @Composable
 fun HomeScreen(
@@ -166,6 +172,7 @@ fun HomeScreen(
         onOpenWebReader = onOpenWebReader,
         onOpenPage = onOpenPage,
         onDeletePage = { viewModel.deletePage(it) },
+        onDeleteGroup = { viewModel.deleteGroup(it) },
         onCancelProcessing = { viewModel.cancel() },
     )
 }
@@ -180,250 +187,341 @@ internal fun HomeContent(
     onOpenWebReader: () -> Unit,
     onOpenPage: (String) -> Unit,
     onDeletePage: (String) -> Unit,
+    onDeleteGroup: (String) -> Unit = {},
     onCancelProcessing: () -> Unit,
 ) {
-    MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
-        var selectedTab by remember { mutableIntStateOf(0) }
-        val context = LocalContext.current
-        val historyItems = remember(state.pages, context) {
-            state.pages.map { page ->
-                TranslationHistoryItem(
-                    id = page.id,
-                    title = page.title.ifBlank { "Trang không tên" },
-                    timeAgo = relativeTime(page.createdAt),
-                    pageCount = page.pageCount,
-                    isCompleted = page.translations.isNotEmpty(),
-                    coverFile = File(context.filesDir, "pages/${page.id}/${page.fileNameThumb}"),
+    // 0 = Trang chủ, 2 = Thư viện (Tab 1 mở Đọc web, Tab 3 mở Cài đặt)
+    var activeTab by rememberSaveable { mutableIntStateOf(0) }
+
+    val historyBatches = remember(state.pages) {
+        state.pages
+            .groupBy { it.groupId }
+            .map { (groupId, groupPages) ->
+                val sorted = groupPages.sortedBy { it.pageIndex }
+                val cover = sorted.first()
+                val hasFailed = groupPages.any { p ->
+                    p.translations.any { it.status == TranslationStatus.FAILED }
+                }
+                HistoryBatch(
+                    groupId = groupId,
+                    coverPage = cover,
+                    totalPages = groupPages.size,
+                    latestTimestamp = groupPages.maxOf { it.createdAt },
+                    totalRegions = groupPages.sumOf { it.regions.size },
+                    isCompleted = !hasFailed && groupPages.any { it.regions.isNotEmpty() },
                 )
             }
-        }
+            .sortedByDescending { it.latestTimestamp }
+    }
+    val pageRows = remember(state.pages) { state.pages.chunked(2) }
 
-        Scaffold(
-            containerColor = BgDark,
-            snackbarHost = { SnackbarHost(snackbar) },
-            bottomBar = {
-                ManhwaBottomNavBar(
-                    selectedIndex = selectedTab,
-                    onSelect = { selectedTab = it },
-                    onOpenSettings = onOpenSettings,
-                )
-            },
-        ) { innerPadding ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .statusBarsPadding(),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            HomeHeader(
+                title = if (activeTab == 2) "Thư viện" else "Manhwa Translate",
+                onOpenSettings = onOpenSettings,
+                onOpenWebReader = onOpenWebReader,
+            )
+        },
+        bottomBar = {
+            ManhwaBottomNavBar(
+                selectedIndex = activeTab,
+                onSelect = { index ->
+                    when (index) {
+                        0 -> activeTab = 0
+                        1 -> onOpenWebReader()
+                        2 -> activeTab = 2
+                        3 -> onOpenSettings()
+                    }
+                },
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            if (activeTab == 0) {
                 item {
-                    HomeTopBar(onSettingsClick = onOpenSettings)
+                    HeroCard(onPickImages = onPickImages, onCapture = onCapture)
                 }
 
                 item {
-                    HeroTranslateCard(onPickImageClick = onPickImages, onTakePhotoClick = onCapture)
+                    ConfigRow(settings = state.settings, onOpenSettings = onOpenSettings)
                 }
 
                 item {
-                    LanguageEngineCard(
-                        sourceLang = state.settings.sourceScript.shortLabel,
-                        targetLang = state.settings.target.label,
-                        engineName = state.settings.provider.shortLabel(),
-                        onClick = onOpenSettings,
-                    )
+                    WebReaderRow(onClick = onOpenWebReader)
                 }
 
                 item {
-                    WebReaderCard(onClick = onOpenWebReader)
-                }
-
-                item {
-                    Text(
+                    SectionTitle(
                         text = "Lịch sử dịch",
-                        color = TextSecondary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp, start = 2.dp),
+                        trailing = if (state.pages.isEmpty()) null else "${state.pages.size} trang",
+                        modifier = Modifier.animateItem(),
                     )
                 }
 
-                if (historyItems.isEmpty()) {
-                    item { EmptyHistoryCard() }
+                if (historyBatches.isEmpty()) {
+                    item {
+                        EmptyLibrary(
+                            onPickImages = onPickImages,
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
                 } else {
-                    items(historyItems, key = { it.id }) { item ->
-                        HistoryItemCard(
-                            item = item,
-                            onClick = { onOpenPage(item.id) },
-                            onDelete = { onDeletePage(item.id) },
+                    items(historyBatches, key = { it.groupId }) { batch ->
+                        HistoryBatchCard(
+                            batch = batch,
+                            onOpen = { onOpenPage(batch.coverPage.id) },
+                            onDelete = { onDeleteGroup(batch.groupId) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
-
-                item { Spacer(modifier = Modifier.height(8.dp)) }
+            } else {
+                item {
+                    SectionTitle(
+                        text = "Tất cả trang đã dịch",
+                        trailing = if (state.pages.isEmpty()) null else "${state.pages.size} trang",
+                    )
+                }
+                if (state.pages.isEmpty()) {
+                    item { EmptyLibrary(onPickImages = onPickImages) }
+                } else {
+                    items(pageRows.size) { rowIndex ->
+                        val rowPages = pageRows[rowIndex]
+                        Row(
+                            modifier = Modifier.animateItem(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            rowPages.forEach { page ->
+                                PageCard(
+                                    page = page,
+                                    onOpen = { onOpenPage(page.id) },
+                                    onDelete = { onDeletePage(page.id) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (rowPages.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
             }
         }
+    }
 
-        state.processing?.let { processing ->
-            ProcessingDialog(processing, onCancel = onCancelProcessing)
-        }
+    state.processing?.let { processing ->
+        ProcessingDialog(processing, onCancel = onCancelProcessing)
     }
 }
 
-// --- Data model for the history list ---
-data class TranslationHistoryItem(
-    val id: String,
-    val title: String,
-    val timeAgo: String,
-    val pageCount: Int,
-    val isCompleted: Boolean = false,
-    val coverFile: File? = null,
-)
-
 @Composable
-private fun HomeTopBar(onSettingsClick: () -> Unit) {
+private fun HomeHeader(
+    title: String,
+    onOpenSettings: () -> Unit,
+    onOpenWebReader: () -> Unit,
+) {
+    val accents = LocalAccents.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(start = 18.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Brush.linearGradient(listOf(AccentPurple, AccentPink))),
-                contentAlignment = Alignment.Center,
+        AppLogo(size = 34.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        IconButton(onClick = onOpenSettings) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.size(38.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "Cài đặt",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Text(
-                text = "Manhwa Translate",
-                color = TextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
         }
-
-        IconButton(
-            onClick = onSettingsClick,
+        Spacer(Modifier.width(4.dp))
+        Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(38.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF241B2B)),
+                .background(MaterialTheme.colorScheme.secondaryContainer)
+                .border(
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(listOf(accents.glowStart, accents.glowEnd)),
+                    shape = CircleShape,
+                )
+                .clickable(onClick = onOpenWebReader),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Rounded.Settings,
-                contentDescription = "Cài đặt",
-                tint = Color(0xFFD6C8E0),
-                modifier = Modifier.size(21.dp),
+                Icons.Rounded.AutoAwesome,
+                contentDescription = "Đọc web nhanh",
+                modifier = Modifier.size(19.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
     }
 }
 
 @Composable
-private fun HeroTranslateCard(onPickImageClick: () -> Unit, onTakePhotoClick: () -> Unit) {
+private fun HeroCard(onPickImages: () -> Unit, onCapture: () -> Unit) {
+    val accents = LocalAccents.current
+    val shape = RoundedCornerShape(26.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(Brush.linearGradient(listOf(HeroGradStart, HeroGradMid, HeroGradEnd)))
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(accents.heroStart, accents.heroMiddle, accents.heroEnd),
+                ),
+            )
             .border(
                 width = 1.dp,
                 brush = Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f)),
+                    listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.06f)),
                 ),
-                shape = RoundedCornerShape(26.dp),
+                shape = shape,
             ),
     ) {
+        // Họa tiết khung truyện Manhwa mờ phía bên phải
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val lineColor = Color.White.copy(alpha = 0.13f)
+            val fillTint = Color.White.copy(alpha = 0.05f)
+            val rightStart = size.width * 0.56f
+
+            drawRoundRect(
+                color = fillTint,
+                topLeft = Offset(rightStart, -12f),
+                size = Size(size.width * 0.24f, size.height * 0.52f),
+                cornerRadius = CornerRadius(18f, 18f),
+            )
+            drawRoundRect(
+                color = lineColor,
+                topLeft = Offset(rightStart, -12f),
+                size = Size(size.width * 0.24f, size.height * 0.52f),
+                cornerRadius = CornerRadius(18f, 18f),
+                style = Stroke(width = 2.5f),
+            )
+            drawRoundRect(
+                color = fillTint,
+                topLeft = Offset(size.width * 0.83f, 16f),
+                size = Size(size.width * 0.22f, size.height * 0.42f),
+                cornerRadius = CornerRadius(16f, 16f),
+            )
+            drawRoundRect(
+                color = lineColor,
+                topLeft = Offset(size.width * 0.83f, 16f),
+                size = Size(size.width * 0.22f, size.height * 0.42f),
+                cornerRadius = CornerRadius(16f, 16f),
+                style = Stroke(width = 2.5f),
+            )
+            // Bong bóng thoại nhỏ trang trí
+            drawOval(
+                color = Color.White.copy(alpha = 0.10f),
+                topLeft = Offset(size.width * 0.69f, size.height * 0.18f),
+                size = Size(size.width * 0.17f, size.height * 0.24f),
+            )
+            // Đường tốc độ (speed lines) nhẹ góc phải dưới
+            for (i in 0..4) {
+                val offset = i * 24f
+                drawLine(
+                    color = lineColor.copy(alpha = 0.09f),
+                    start = Offset(size.width * 0.68f + offset, size.height * 0.58f),
+                    end = Offset(size.width * 0.54f + offset, size.height),
+                    strokeWidth = 2f,
+                )
+            }
+        }
+
+        // Quầng sáng hồng dịu góc phải trên
         Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
                 .size(160.dp)
-                .offset(x = 30.dp, y = (-30).dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 34.dp, y = (-34).dp)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0x55FF8FB8), Color.Transparent),
+                        listOf(Color(0x55FF8FB8), Color.Transparent),
                     ),
                 ),
         )
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(22.dp),
-        ) {
+        Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 22.dp)) {
             Text(
                 text = "Dịch truyện\ntrong một chạm",
-                color = Color.White,
-                fontSize = 27.sp,
-                fontWeight = FontWeight.ExtraBold,
-                lineHeight = 33.sp,
+                style = MaterialTheme.typography.displaySmall,
+                color = accents.onHero,
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = "Bản dịch được vẽ thẳng vào bong bóng thoại.",
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 13.5.sp,
+                style = MaterialTheme.typography.bodyMedium,
+                color = accents.onHeroMuted,
             )
-            Spacer(modifier = Modifier.height(22.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    onClick = onPickImageClick,
+                    onClick = onPickImages,
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = PrimaryPillBg,
-                        contentColor = PrimaryPillText,
+                        containerColor = accents.heroButton,
+                        contentColor = accents.onHeroButton,
                     ),
-                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.PhotoLibrary,
+                        Icons.Outlined.PhotoLibrary,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Chọn ảnh", fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Chọn ảnh", fontWeight = FontWeight.Bold)
                 }
-
                 OutlinedButton(
-                    onClick = onTakePhotoClick,
+                    onClick = onCapture,
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
                     shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, accents.onHero.copy(alpha = 0.48f)),
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = Color.White.copy(alpha = 0.10f),
-                        contentColor = Color.White,
+                        contentColor = accents.onHero,
                     ),
-                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.CameraAlt,
+                        Icons.Outlined.PhotoCamera,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Chụp ảnh", fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Chụp ảnh", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -431,265 +529,212 @@ private fun HeroTranslateCard(onPickImageClick: () -> Unit, onTakePhotoClick: ()
 }
 
 @Composable
-private fun LanguageEngineCard(
-    sourceLang: String,
-    targetLang: String,
-    engineName: String,
-    onClick: () -> Unit,
-) {
-    GlowingFeatureCard(onClick = onClick) {
-        FeatureIconBox(icon = Icons.Rounded.SwapHoriz)
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Ngôn ngữ và bộ dịch",
-                color = TextSecondary,
-                fontSize = 12.sp,
+private fun ConfigRow(settings: AppSettings, onOpenSettings: () -> Unit) {
+    GroupCard(glowBorder = true) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenSettings)
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconTile(icon = Icons.Outlined.SwapHoriz)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Ngôn ngữ và bộ dịch",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = settings.sourceScript.shortLabel,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowForward,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(horizontal = 6.dp)
+                            .size(15.dp),
+                        tint = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text(
+                        text = settings.target.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            AccentPill(text = settings.provider.shortLabel(), maxWidth = 112.dp)
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
-            Spacer(modifier = Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        }
+    }
+}
+
+@Composable
+private fun WebReaderRow(onClick: () -> Unit) {
+    GroupCard(glowBorder = true) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconTile(icon = Icons.Outlined.Public)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = sourceLang,
-                    color = TextPrimary,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = "Đọc trên web",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                    contentDescription = null,
-                    tint = AccentPink,
-                    modifier = Modifier
-                        .padding(horizontal = 6.dp)
-                        .size(15.dp),
-                )
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = targetLang,
-                    color = TextPrimary,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = "Dịch ảnh trang truyện trực tiếp",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(Brush.horizontalGradient(listOf(Color(0xFF7E3FF2), Color(0xFF9E5CF8))))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        ) {
-            Text(
-                text = engineName,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = null,
-            tint = TextSecondary,
-        )
-    }
-}
-
-@Composable
-private fun WebReaderCard(onClick: () -> Unit) {
-    GlowingFeatureCard(onClick = onClick) {
-        FeatureIconBox(icon = Icons.Rounded.Public)
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Đọc trên web",
-                color = TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "Dịch ảnh trang truyện trực tiếp",
-                color = TextSecondary,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF4ADE80)))),
-            contentAlignment = Alignment.Center,
-        ) {
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF4ADE80))),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Rounded.Language,
+                    contentDescription = null,
+                    tint = Color(0xFF0F172A),
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
             Icon(
-                imageVector = Icons.Rounded.Language,
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
-                tint = Color(0xFF0F172A),
-                modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = null,
-            tint = TextSecondary,
-        )
     }
 }
 
 @Composable
-private fun GlowingFeatureCard(
-    onClick: () -> Unit,
-    content: @Composable RowScope.() -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(CardSurface)
-            .border(
-                width = 1.dp,
-                brush = Brush.horizontalGradient(listOf(CardBorderStart, CardBorderEnd)),
-                shape = RoundedCornerShape(22.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        content = content,
-    )
-}
-
-@Composable
-private fun FeatureIconBox(icon: ImageVector) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF2A1D38))
-            .border(
-                width = 1.dp,
-                brush = Brush.linearGradient(listOf(AccentPurple.copy(0.7f), AccentPink.copy(0.5f))),
-                shape = RoundedCornerShape(14.dp),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color(0xFFE9D5FF),
-            modifier = Modifier.size(22.dp),
-        )
-    }
-}
-
-@Composable
-private fun HistoryItemCard(
-    item: TranslationHistoryItem,
-    onClick: () -> Unit,
+private fun HistoryBatchCard(
+    batch: HistoryBatch,
+    onOpen: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(CardSurface)
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(22.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (item.coverFile != null) {
-            AsyncImage(
-                model = item.coverFile,
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(84.dp)
-                    .clip(RoundedCornerShape(14.dp)),
-            )
-        } else {
+    val page = batch.coverPage
+    val accents = LocalAccents.current
+    val displayTitle = page.title.substringBeforeLast('.').ifBlank { "Trang đã dịch" }
+
+    GroupCard(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
                     .size(84.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xFF312E81), Color(0xFF701A75)))),
-                contentAlignment = Alignment.Center,
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.MenuBook,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(32.dp),
+                AsyncImage(
+                    model = File(
+                        LocalContext.current.filesDir,
+                        "pages/${page.id}/${page.fileNameThumb}",
+                    ),
+                    contentDescription = displayTitle,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Text(
-                text = item.title,
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${item.timeAgo} • ${item.pageCount} trang",
-                color = TextSecondary,
-                fontSize = 13.sp,
-            )
-            if (item.isCompleted) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(StatusGreenBg)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = "Đã hoàn thành",
-                        color = StatusGreenText,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
+                if (accents.imageScrim.alpha > 0f) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(accents.imageScrim),
                     )
                 }
             }
-        }
 
-        IconButton(onClick = { confirmDelete = true }) {
-            Icon(
-                imageVector = Icons.Outlined.DeleteOutline,
-                contentDescription = "Xoá",
-                tint = TextSecondary,
-                modifier = Modifier.size(19.dp),
-            )
+            Spacer(Modifier.width(14.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = displayTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${formatRelativeTime(batch.latestTimestamp)} • ${batch.totalPages} trang",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (batch.isCompleted) {
+                    Spacer(Modifier.height(2.dp))
+                    StatusBadge(text = "Đã hoàn thành", positive = true)
+                } else {
+                    Text(
+                        text = "${batch.totalRegions} vùng thoại · ${page.providerName}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            IconButton(onClick = { confirmDelete = true }) {
+                Icon(
+                    Icons.Outlined.DeleteOutline,
+                    contentDescription = "Xoá",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Xoá trang này?", color = TextPrimary) },
-            text = { Text("Ảnh đã dịch và dữ liệu nhận diện sẽ bị xoá khỏi máy.", color = TextSecondary) },
+            title = {
+                Text(if (batch.totalPages > 1) "Xoá nhóm ${batch.totalPages} trang?" else "Xoá trang này?")
+            },
+            text = { Text("Ảnh đã dịch và dữ liệu nhận diện sẽ bị xoá khỏi máy.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -704,114 +749,171 @@ private fun HistoryItemCard(
 }
 
 @Composable
-private fun EmptyHistoryCard() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(CardSurface)
-            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(22.dp))
-            .padding(vertical = 36.dp, horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF281F31)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.PhotoLibrary,
-                contentDescription = null,
-                tint = TextSecondary,
-                modifier = Modifier.size(26.dp),
-            )
-        }
-        Spacer(modifier = Modifier.height(14.dp))
-        Text(
-            text = "Chưa có trang nào",
-            color = TextPrimary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Ảnh đã dịch sẽ được lưu ở đây.",
-            color = TextSecondary,
-            fontSize = 13.sp,
-        )
-    }
-}
-
-@Composable
-private fun ManhwaBottomNavBar(
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-    onOpenSettings: () -> Unit,
+private fun EmptyLibrary(
+    onPickImages: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val navItems = listOf(
-        Pair("Trang chủ", Icons.Rounded.Home),
-        Pair("Khám phá", Icons.Rounded.Explore),
-        Pair("Thư viện", Icons.Rounded.PhotoLibrary),
-        Pair("Cài đặt", Icons.Rounded.Settings),
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xF2151019))
-            .navigationBarsPadding(),
-    ) {
-        HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
-
-        Row(
+    GroupCard(modifier = modifier) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 20.dp, vertical = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            navItems.forEachIndexed { index, (label, icon) ->
-                val isSelected = selectedIndex == index
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable {
-                            if (index == 3) onOpenSettings() else onSelect(index)
-                        }
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(if (isSelected) Color(0xFF42344D) else Color.Transparent)
-                            .padding(horizontal = 18.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = label,
-                            tint = if (isSelected) Color.White else TextSecondary,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = label,
-                        color = if (isSelected) Color.White else TextSecondary,
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                }
+            IconTile(
+                icon = Icons.Outlined.PhotoLibrary,
+                size = 56.dp,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "Chưa có lịch sử dịch nào",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Chọn ảnh truyện hoặc đọc trên web — các trang đã dịch sẽ lưu gọn tại đây.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = onPickImages,
+                shape = CircleShape,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+            ) {
+                Text("Chọn ảnh đầu tiên")
             }
         }
     }
 }
 
 @Composable
+private fun PageCard(
+    page: SavedPage,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    val accents = LocalAccents.current
+    Surface(
+        modifier = modifier.clickable(onClick = onOpen),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+    ) {
+        Column {
+            Box {
+                AsyncImage(
+                    model = File(
+                        LocalContext.current.filesDir,
+                        "pages/${page.id}/${page.fileNameThumb}",
+                    ),
+                    contentDescription = page.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.74f),
+                )
+                if (accents.imageScrim.alpha > 0f) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(accents.imageScrim),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .clickable { confirmDelete = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f),
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Outlined.DeleteOutline,
+                                contentDescription = "Xoá",
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                }
+                if (page.pageCount > 1) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .align(Alignment.BottomStart),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.Layers,
+                                contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                                tint = Color.White,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "${page.pageIndex + 1}/${page.pageCount}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+            }
+            Column(Modifier.padding(horizontal = 11.dp, vertical = 10.dp)) {
+                Text(
+                    text = page.title.substringBeforeLast('.').ifBlank { "Trang đã dịch" },
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "${page.regions.size} vùng · ${formatDate(page.createdAt)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Xoá trang này?") },
+            text = { Text("Ảnh đã dịch và dữ liệu nhận diện sẽ bị xoá khỏi máy.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text("Xoá") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Huỷ") }
+            },
+        )
+    }
+}
+
+@Composable
 private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
+    val accents = LocalAccents.current
     val progress by animateFloatAsState(
         targetValue = state.progress.coerceIn(0f, 1f),
         animationSpec = tween(360),
@@ -829,6 +931,10 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
             Surface(
                 shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(
+                    1.dp,
+                    Brush.linearGradient(listOf(accents.glowStart, accents.glowEnd)),
+                ),
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
@@ -874,11 +980,7 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
                     )
                     Spacer(Modifier.height(10.dp))
                     TextButton(onClick = onCancel) {
-                        Icon(
-                            Icons.Outlined.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp),
-                        )
+                        Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Huỷ")
                     }
@@ -888,31 +990,35 @@ private fun ProcessingDialog(state: ProcessingState, onCancel: () -> Unit) {
     }
 }
 
+private fun TranslationProviderType.shortLabel(): String = when (this) {
+    TranslationProviderType.FREE_AUTO -> "Miễn phí"
+    TranslationProviderType.ON_DEVICE -> "ML Kit"
+    TranslationProviderType.LOCAL_LLM -> "LLM máy"
+    TranslationProviderType.GOOGLE_FREE -> "Google Dịch"
+    TranslationProviderType.MYMEMORY -> "MyMemory"
+    TranslationProviderType.LIBRE_TRANSLATE -> "LibreTranslate"
+    TranslationProviderType.GOOGLE_CLOUD -> "Google Cloud"
+    TranslationProviderType.DEEPL -> "DeepL"
+    TranslationProviderType.OPENAI_COMPATIBLE -> "OpenAI"
+    TranslationProviderType.GEMINI -> "Gemini"
+}
 
-private fun relativeTime(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = (now - timestamp).coerceAtLeast(0)
+private fun formatRelativeTime(timestamp: Long): String {
+    val diff = (System.currentTimeMillis() - timestamp).coerceAtLeast(0L)
     val minutes = diff / 60_000L
     val hours = diff / 3_600_000L
     val days = diff / 86_400_000L
     return when {
-        minutes < 1 -> "Vừa xong"
+        minutes < 1 -> "Dịch vừa xong"
         minutes < 60 -> "Dịch $minutes phút trước"
         hours < 24 -> "Dịch $hours giờ trước"
+        days == 1L -> "Dịch hôm qua"
         days < 7 -> "Dịch $days ngày trước"
-        else -> "Dịch ${SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date(timestamp))}"
+        else -> "Dịch ${formatDate(timestamp)}"
     }
 }
 
-private fun com.manhwatranslate.core.model.TranslationProviderType.shortLabel(): String = when (this) {
-    com.manhwatranslate.core.model.TranslationProviderType.FREE_AUTO -> "Miễn phí"
-    com.manhwatranslate.core.model.TranslationProviderType.ON_DEVICE -> "ML Kit"
-    com.manhwatranslate.core.model.TranslationProviderType.LOCAL_LLM -> "LLM máy"
-    com.manhwatranslate.core.model.TranslationProviderType.GOOGLE_FREE -> "Google Dịch"
-    com.manhwatranslate.core.model.TranslationProviderType.MYMEMORY -> "MyMemory"
-    com.manhwatranslate.core.model.TranslationProviderType.LIBRE_TRANSLATE -> "LibreTranslate"
-    com.manhwatranslate.core.model.TranslationProviderType.GOOGLE_CLOUD -> "Google Cloud"
-    com.manhwatranslate.core.model.TranslationProviderType.DEEPL -> "DeepL"
-    com.manhwatranslate.core.model.TranslationProviderType.OPENAI_COMPATIBLE -> "OpenAI"
-    com.manhwatranslate.core.model.TranslationProviderType.GEMINI -> "Gemini"
-}
+private fun formatDate(timestamp: Long): String =
+    SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date(timestamp))
+
+

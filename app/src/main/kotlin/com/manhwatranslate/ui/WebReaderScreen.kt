@@ -60,6 +60,7 @@ import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,6 +95,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -350,7 +352,14 @@ fun WebReaderScreen(
                     Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                listOf(
+                                    com.manhwatranslate.ui.theme.LocalAccents.current.glowStart,
+                                    com.manhwatranslate.ui.theme.LocalAccents.current.glowEnd,
+                                ),
+                            ),
+                        ),
                 )
                 Surface(color = MaterialTheme.colorScheme.surface) {
                     Column(
@@ -395,6 +404,10 @@ fun WebReaderScreen(
                             onClick = { translatePage() },
                             enabled = !state.translating,
                             shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = Color.White,
+                            ),
                         ) {
                             AnimatedContent(
                                 targetState = state.translating,
@@ -649,20 +662,7 @@ private fun EmptyReader(onPaste: () -> Unit, modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(64.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Outlined.Public,
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            }
+            IconTile(icon = Icons.Outlined.Public, size = 64.dp)
             Spacer(Modifier.height(2.dp))
             Text("Chưa mở trang nào", style = MaterialTheme.typography.titleMedium)
             Text(
