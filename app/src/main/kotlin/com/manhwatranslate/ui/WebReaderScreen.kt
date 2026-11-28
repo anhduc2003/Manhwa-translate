@@ -27,6 +27,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.CleaningServices
@@ -165,8 +167,12 @@ fun WebReaderScreen(
     // A manual clear stops the automatic pass for this page; the next load or press starts it again.
     var autoPaused by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    // The sheet answers the everyday toggles; the long list lives one tap away.
+    var showAllSettings by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // The reading page stays in view: the sheet opens at its half height and expands on a drag,
+    // instead of covering the whole chapter the moment it is opened.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     LaunchedEffect(Unit) {
         viewModel.onApplyImage = { index, url ->
@@ -346,7 +352,10 @@ fun WebReaderScreen(
                         IconButton(onClick = { webView?.reload() }) {
                             Icon(Icons.Outlined.Refresh, contentDescription = "Tải lại")
                         }
-                        IconButton(onClick = { settingsOpen = true }) {
+                        IconButton(onClick = {
+                            showAllSettings = false
+                            settingsOpen = true
+                        }) {
                             Icon(Icons.Outlined.Tune, contentDescription = "Cài đặt")
                         }
                     },
@@ -574,25 +583,39 @@ fun WebReaderScreen(
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             dragHandle = { SheetHandle() },
         ) {
-            WebSettingsSheet(
-                state = state,
-                onClose = { settingsOpen = false },
-                onToggleAds = { viewModel.toggleAdBlock() },
-                onToggleSource = { viewModel.toggleBlockerSource(it) },
-                onToggleAuto = { viewModel.setAutoTranslate(it) },
-                onToggleReader = { viewModel.setReaderMode(it) },
-                onToggleDesktop = { viewModel.setDesktopMode(it) },
-                onToggleKeepAwake = { viewModel.setKeepAwake(it) },
-                onClearTranslations = { viewModel.clearTranslated() },
-                onClearCookies = { viewModel.clearCookies() },
-                onOpenExternal = {
-                    val target = webView?.url ?: addressBar
-                    if (target.isNotBlank()) {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
-                    }
-                    settingsOpen = false
-                },
-            )
+            if (showAllSettings) {
+                WebSettingsSheet(
+                    state = state,
+                    onClose = { settingsOpen = false },
+                    onBack = { showAllSettings = false },
+                    onToggleAds = { viewModel.toggleAdBlock() },
+                    onToggleSource = { viewModel.toggleBlockerSource(it) },
+                    onToggleAuto = { viewModel.setAutoTranslate(it) },
+                    onToggleReader = { viewModel.setReaderMode(it) },
+                    onToggleDesktop = { viewModel.setDesktopMode(it) },
+                    onToggleKeepAwake = { viewModel.setKeepAwake(it) },
+                    onClearTranslations = { viewModel.clearTranslated() },
+                    onClearCookies = { viewModel.clearCookies() },
+                    onOpenExternal = {
+                        val target = webView?.url ?: addressBar
+                        if (target.isNotBlank()) {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
+                        }
+                        settingsOpen = false
+                    },
+                )
+            } else {
+                ReaderQuickPanel(
+                    state = state,
+                    onClose = { settingsOpen = false },
+                    onToggleAds = { viewModel.toggleAdBlock() },
+                    onToggleAuto = { viewModel.setAutoTranslate(it) },
+                    onToggleReader = { viewModel.setReaderMode(it) },
+                    onToggleDesktop = { viewModel.setDesktopMode(it) },
+                    onToggleKeepAwake = { viewModel.setKeepAwake(it) },
+                    onAllSettings = { showAllSettings = true },
+                )
+            }
         }
     }
 
@@ -766,10 +789,139 @@ private object ReaderSettingsPalette {
     val DestructiveContainer = Color(0x22FF6B81)
 }
 
+/**
+ * The everyday switches, laid out as one short panel: five toggle tiles and a way into the long
+ * list. The reading page stays visible because the panel is only as tall as its content.
+ */
+@Composable
+private fun ReaderQuickPanel(
+    state: WebReaderUiState,
+    onClose: () -> Unit,
+    onToggleAds: () -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
+    onToggleReader: (Boolean) -> Unit,
+    onToggleDesktop: (Boolean) -> Unit,
+    onToggleKeepAwake: (Boolean) -> Unit,
+    onAllSettings: () -> Unit,
+) {
+    val palette = ReaderSettingsPalette
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.Background)
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Điều khiển nhanh",
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                ),
+                color = palette.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.06f)),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Đóng",
+                    tint = palette.TextPrimary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+
+        val tiles = listOf(
+            QuickTile("Tự động dịch", Icons.Rounded.Translate, state.autoTranslate) { onToggleAuto(!state.autoTranslate) },
+            QuickTile("Chế độ đọc", Icons.Rounded.AutoStories, state.readerMode) { onToggleReader(!state.readerMode) },
+            QuickTile("Chặn quảng cáo", Icons.Rounded.Shield, state.adBlockEnabled) { onToggleAds() },
+            QuickTile("Máy tính", Icons.Rounded.Computer, state.desktopMode) { onToggleDesktop(!state.desktopMode) },
+            QuickTile("Sáng màn hình", Icons.Rounded.WbSunny, state.keepAwake) { onToggleKeepAwake(!state.keepAwake) },
+        )
+        tiles.chunked(3).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                row.forEach { tile -> QuickTileButton(tile, Modifier.weight(1f)) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onAllSettings)
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.TextSecondary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "Cài đặt khác",
+                color = palette.TextPrimary,
+                fontSize = 14.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.TextSecondary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+private data class QuickTile(
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val active: Boolean,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun QuickTileButton(tile: QuickTile, modifier: Modifier) {
+    val palette = ReaderSettingsPalette
+    val shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(if (tile.active) palette.PrimaryContainer else palette.CardSurface)
+            .border(1.dp, if (tile.active) palette.Primary.copy(alpha = 0.5f) else palette.CardBorder, shape)
+            .clickable(onClick = tile.onClick)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = tile.icon,
+            contentDescription = null,
+            tint = if (tile.active) palette.Primary else palette.TextSecondary,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = tile.label,
+            color = if (tile.active) palette.TextPrimary else palette.TextSecondary,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun WebSettingsSheet(
     state: WebReaderUiState,
     onClose: () -> Unit,
+    onBack: () -> Unit,
     onToggleAds: () -> Unit,
     onToggleSource: (String) -> Unit,
     onToggleAuto: (Boolean) -> Unit,
@@ -792,21 +944,21 @@ private fun WebSettingsSheet(
             .verticalScroll(rememberScrollState())
             .background(palette.Background)
             .padding(horizontal = 16.dp)
-            .padding(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         // Tiêu đề thay cho TopAppBar vì đây là ModalBottomSheet
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 2.dp),
+                .padding(top = 0.dp, bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(9.dp))
                     .background(palette.PrimaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
@@ -814,30 +966,30 @@ private fun WebSettingsSheet(
                     imageVector = Icons.Rounded.Tune,
                     contentDescription = null,
                     tint = palette.Primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
             Text(
                 text = "Cài đặt trình đọc",
-                style = MaterialTheme.typography.titleMedium.copy(
+                style = MaterialTheme.typography.titleSmall.copy(
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                 ),
                 color = palette.TextPrimary,
                 modifier = Modifier.weight(1f),
             )
             IconButton(
-                onClick = onClose,
+                onClick = onBack,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.06f)),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "Đóng",
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Quay lại",
                     tint = palette.TextPrimary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(17.dp),
                 )
             }
         }
