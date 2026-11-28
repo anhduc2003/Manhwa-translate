@@ -42,13 +42,17 @@ def app_erase(page_path, boxes_path, out_dir):
     return Image.open(source).convert("RGB"), Image.open(erased).convert("RGB")
 
 
-def ink_mask(crop, box, tolerance=40):
+def paper_of(crop, box, pad=14):
+    """Median colour of the ring around the box: the colour the model is told the hole should be."""
+    ring = ring_colour(crop, box, pad=pad)
+    return np.median(ring.reshape(-1, 3), axis=0)
+
+
+def ink_mask(crop, box, paper, tolerance=40):
     """The pixels that are lettering rather than paper, as the eraser itself decides it."""
     from scipy import ndimage
 
     x0, y0, x1, y1 = box
-    ring = ring_colour(crop, (x0, y0, x1, y1), pad=14)
-    paper = np.median(ring.reshape(-1, 3), axis=0)
     distance = np.abs(np.asarray(crop, dtype=float) - paper).max(axis=2)
     inside = np.zeros(distance.shape, dtype=bool)
     inside[y0:y1, x0:x1] = distance[y0:y1, x0:x1] > tolerance
@@ -66,8 +70,9 @@ def model_erase(page, boxes, model, patch=128, padding=16, hole="ink"):
         bottom = min(page.height, y1 + padding)
         crop_image = page.crop((left, top, right, bottom))
         crop = np.asarray(crop_image, dtype=np.float32) / 255.0
+        paper = paper_of(crop_image, (x0 - left, y0 - top, x1 - left, y1 - top))
         if hole == "ink":
-            mask = ink_mask(crop_image, (x0 - left, y0 - top, x1 - left, y1 - top))
+            mask = ink_mask(crop_image, (x0 - left, y0 - top, x1 - left, y1 - top), paper)
         else:
             mask = np.zeros(crop.shape[:2], dtype=np.float32)
             mask[y0 - top : y1 - top, x0 - left : x1 - left] = 1.0
@@ -78,7 +83,11 @@ def model_erase(page, boxes, model, patch=128, padding=16, hole="ink"):
         canvas_mask = np.zeros((size, size), dtype=np.float32)
         canvas[: crop.shape[0], : crop.shape[1]] = crop
         canvas_mask[: mask.shape[0], : mask.shape[1]] = mask
-        stacked = np.concatenate([canvas * (1 - canvas_mask)[:, :, None], canvas_mask[:, :, None]], axis=2)
+        planes = np.broadcast_to((paper.astype(np.float32) / 255.0).reshape(1, 1, 3), canvas.shape)
+        stacked = np.concatenate(
+            [canvas * (1 - canvas_mask)[:, :, None], canvas_mask[:, :, None], planes.astype(np.float32)],
+            axis=2,
+        )
         tensor = torch.from_numpy(np.ascontiguousarray(stacked.transpose(2, 0, 1))).unsqueeze(0)
         with torch.no_grad():
             out = model(tensor)[0].numpy().transpose(1, 2, 0)
@@ -101,6 +110,20 @@ def ring_colour(image, box, pad=14):
     return outer[mask].reshape(-1, 3)
 
 
+def texture(crop, paper, tolerance=40):
+    """How busy the background is: mean neighbour difference over the pixels that are not lettering."""
+    values = np.asarray(crop, dtype=float)
+    distance = np.abs(values - paper).max(axis=2)
+    plain = distance <= tolerance
+    if plain.sum() < 16:
+        return 0.0
+    luminance = values.mean(axis=2)
+    horizontal = np.abs(luminance[:, 1:] - luminance[:, :-1])[plain[:, 1:] & plain[:, :-1]]
+    vertical = np.abs(luminance[1:, :] - luminance[:-1, :])[plain[1:, :] & plain[:-1, :]]
+    parts = [part.mean() for part in (horizontal, vertical) if part.size]
+    return float(np.mean(parts)) if parts else 0.0
+
+
 def score(source, filled, box):
     x0, y0, x1, y1 = (int(v) for v in box)
     ring = ring_colour(source, (x0, y0, x1, y1))
@@ -113,10 +136,32 @@ def score(source, filled, box):
     return stain, spread
 
 
+def guard_flat(source, rebuilt, erased, boxes, padding):
+    """What the app does: on a flat background, a fill that drifts far from it is thrown away."""
+    guarded = rebuilt.copy()
+    for box in boxes:
+        x0, y0, x1, y1 = (int(round(box[key])) for key in ("x0", "y0", "x1", "y1"))
+        left = max(0, x0 - padding)
+        top = max(0, y0 - padding)
+        right = min(source.width, x1 + padding)
+        bottom = min(source.height, y1 + padding)
+        crop = source.crop((left, top, right, bottom))
+        paper = paper_of(crop, (x0 - left, y0 - top, x1 - left, y1 - top))
+        if texture(crop, paper) > 6.0:
+            continue
+        inside = (x0, y0, x1, y1)
+        mine = np.median(np.asarray(rebuilt.crop(inside), dtype=float).reshape(-1, 3), axis=0)
+        if np.abs(mine - paper).max() <= 32:
+            continue
+        guarded.paste(erased.crop(inside), inside)
+    return guarded
+
+
 def main():
     pages_dir, boxes_dir, model_dir = sys.argv[1:4]
     padding = int(sys.argv[4]) if len(sys.argv) > 4 else 16
     hole = sys.argv[5] if len(sys.argv) > 5 else "ink"
+    guard = "guard" in sys.argv[6:]
     model = FillNet()
     model.load_state_dict(torch.load(os.path.join(model_dir, "fillnet.pt"), map_location="cpu"))
     model.eval()
@@ -137,6 +182,8 @@ def main():
             print(f"{name}: the demo harness produced nothing", flush=True)
             continue
         rebuilt = model_erase(source, boxes, model, padding=padding, hole=hole)
+        if guard:
+            rebuilt = guard_flat(source, rebuilt, erased, boxes, padding)
         rows = []
         for box in boxes:
             app = score(source, erased, (box["x0"], box["y0"], box["x1"], box["y1"]))

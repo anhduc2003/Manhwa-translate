@@ -85,7 +85,10 @@ class FillNet(nn.Module):
         c = self.down3(self.pool(b))
         y = self.mid2(torch.cat([self.up2(c), b], dim=1))
         y = self.mid1(torch.cat([self.up1(y), a], dim=1))
-        return torch.sigmoid(self.head(y))
+        # The answer is the paper colour plus whatever the network adds to it, so even an untrained
+        # network paints the right colour and training only sharpens it. The last layer starts at
+        # zero, which makes the starting point exactly the flat fill it has to beat.
+        return torch.clamp(x[:, 4:7] + self.head(y), 0.0, 1.0)
 
 
 def gradient(image):
@@ -106,6 +109,8 @@ def main():
     print(f"train batches {len(train)}, val batches {len(val)}", flush=True)
 
     model = FillNet()
+    nn.init.zeros_(model.head.weight)
+    nn.init.zeros_(model.head.bias)
     print(f"parameters: {sum(p.numel() for p in model.parameters())}", flush=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)

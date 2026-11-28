@@ -3,8 +3,9 @@
 
     python export_onnx.py <data-dir>
 
-Writes `fillnet.onnx`: input `patch` (batch, 4, H, W) — RGB with the hole zeroed plus the mask —
-and output `fill` (batch, 3, H, W) in 0..1. The graph is fully convolutional, so a phone can hand it
+Writes `fillnet.onnx`: input `patch` (batch, 7, H, W) — RGB with the hole zeroed, the mask, and the
+paper colour on three constant planes — and output `fill` (batch, 3, H, W) in 0..1, which already
+includes the paper colour the graph adds back. The graph is fully convolutional, so a phone can hand it
 a whole region crop instead of the 128x128 patch it was trained on.
 """
 import os
@@ -26,7 +27,7 @@ def main():
     fp32 = os.path.join(data_dir, "fillnet.onnx")
     torch.onnx.export(
         model,
-        torch.zeros(1, 4, 128, 128),
+        torch.zeros(1, 7, 128, 128),
         fp32,
         input_names=["patch"],
         output_names=["fill"],
