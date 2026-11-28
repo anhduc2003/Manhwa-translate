@@ -99,7 +99,11 @@ fun main(args: Array<String>) {
     val fonts = result.regions.groupingBy { region -> describeFont(region.font) }.eachCount()
     println("Phông chữ đã chọn: " + fonts.entries.sortedByDescending { it.value }.joinToString { "${it.key} x${it.value}" })
     result.regions.forEach { region ->
-        println("  ${region.box} ${describeFont(region.font)} \"${region.text.take(30)}\"")
+        val translation = result.translations.firstOrNull { it.regionId == region.id }
+        val size = translation?.let {
+            "%.1fpx".format(pipeline.layoutFor(region, it.translatedText, options).textSizePx)
+        } ?: "-"
+        println("  ${region.box} ${describeFont(region.font)} size=$size \"${region.text.take(30)}\"")
     }
     println("Thời gian: ${elapsed}ms")
     println()

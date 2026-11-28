@@ -67,6 +67,12 @@ data class PipelineOptions(
 )
 
 /**
+ * How much larger than the measured original a translation may be drawn. A little room keeps a
+ * short translation from looking squeezed, while still letting a whisper stay a whisper.
+ */
+private const val ORIGINAL_SIZE_ALLOWANCE = 1.15f
+
+/**
  * The whole manhwa page flow: scan for text, drop sound effects, erase the lettering, translate
  * it, draw the translation back into the same bubbles with a font matched to the original.
  */
@@ -432,8 +438,12 @@ class TranslationPipeline(
         val style = options.render
         val targetBox = expandedBox(region.box, options.boxExpansion)
         val font = fontFor(region, style)
+        // The size the original lettering was measured at, not the size that fills the bubble:
+        // a whispered line should stay small and a shout should stay large, exactly as on the page.
+        val measuredSize = region.originalTextSizePx.takeIf { it > 0f }
         val originalSize = if (options.render.autoSizeFromOriginal) {
-            (region.box.height.toFloat() / region.lines.size.coerceAtLeast(1)) * 1.25f
+            (measuredSize ?: (region.box.height.toFloat() / region.lines.size.coerceAtLeast(1)) * 0.78f) *
+                ORIGINAL_SIZE_ALLOWANCE
         } else {
             Float.MAX_VALUE
         }
@@ -640,12 +650,11 @@ class TranslationPipeline(
         val measured = ArrayList<TextRegion>(kept.size)
         for (region in kept) {
             val mask = maskBuilder.build(page, region)
-            val font = if (mask != null) {
-                estimateFont(region, mask, options)
-            } else {
-                region.font
-            }
-            val updated = region.copy(font = font)
+            val lettering = mask?.let { estimateLettering(region, it, options) }
+            val updated = region.copy(
+                font = lettering?.font ?: region.font,
+                originalTextSizePx = lettering?.sizePx ?: region.originalTextSizePx,
+            )
             measured += updated
             if (mask != null) {
                 eraser.erase(working, mask)
@@ -680,8 +689,15 @@ class TranslationPipeline(
         return leftover.toFloat() / total.toFloat()
     }
 
-    private fun estimateFont(region: TextRegion, mask: TextMask, options: PipelineOptions): FontSpec {
-        if (mask.metrics.inkCount == 0) return region.font
+    /** Lettering measured off the artwork: the face to draw with and the size it was drawn at. */
+    private data class EstimatedLettering(val font: FontSpec, val sizePx: Float)
+
+    private fun estimateLettering(
+        region: TextRegion,
+        mask: TextMask,
+        options: PipelineOptions,
+    ): EstimatedLettering? {
+        if (mask.metrics.inkCount == 0) return null
         val preferred = when (options.render.fontMode) {
             FontMode.AUTO -> null
             FontMode.SANS -> FontFamilyKind.SANS
@@ -697,10 +713,10 @@ class TranslationPipeline(
             maxSizePx = options.render.maxTextSizePx,
             minSizePx = options.render.minTextSizePx,
         )
-        val font = result.font.copy(
-            weight = options.render.fontWeightOverride ?: result.font.weight,
-        )
-        return font.copy(tracking = FontTracking.em(measurer, font))
+        val font = result.font
+            .copy(weight = options.render.fontWeightOverride ?: result.font.weight)
+            .let { it.copy(tracking = FontTracking.em(measurer, it)) }
+        return EstimatedLettering(font = font, sizePx = result.estimatedTextSizePx)
     }
 
     private fun compose(
