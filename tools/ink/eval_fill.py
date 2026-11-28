@@ -42,6 +42,16 @@ def app_erase(page_path, boxes_path, out_dir):
     return Image.open(source).convert("RGB"), Image.open(erased).convert("RGB")
 
 
+def anchor(rebuilt, crop, mask):
+    """Pins the fill's colour to the background around the hole, exactly as the eraser does."""
+    around = crop[mask < 0.5]
+    filled = rebuilt[mask > 0.5]
+    if around.size == 0 or filled.size == 0:
+        return rebuilt
+    shift = np.median(around.reshape(-1, 3), axis=0) - np.median(filled.reshape(-1, 3), axis=0)
+    return np.clip(rebuilt + shift.reshape(1, 1, 3), 0.0, 1.0)
+
+
 def paper_of(crop, box, pad=14):
     """Median colour of the ring around the box: the colour the model is told the hole should be."""
     ring = ring_colour(crop, box, pad=pad)
@@ -92,6 +102,7 @@ def model_erase(page, boxes, model, patch=128, padding=16, hole="ink"):
         with torch.no_grad():
             out = model(tensor)[0].numpy().transpose(1, 2, 0)
         rebuilt = out[: crop.shape[0], : crop.shape[1]]
+        rebuilt = anchor(rebuilt, crop, mask)
         blended = np.where(mask[:, :, None] > 0.5, rebuilt, crop)
         patch_image = Image.fromarray((np.clip(blended, 0, 1) * 255).astype(np.uint8))
         filled.paste(patch_image, (left, top))

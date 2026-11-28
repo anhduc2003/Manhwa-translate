@@ -49,7 +49,7 @@ def main():
     import onnxruntime as ort
 
     session = ort.InferenceSession(fp32, providers=["CPUExecutionProvider"])
-    sample = np.random.rand(1, 4, 128, 128).astype(np.float32)
+    sample = np.random.rand(1, 7, 128, 128).astype(np.float32)
     with torch.no_grad():
         expected = model(torch.from_numpy(sample)).numpy()
     got = session.run(None, {"patch": sample})[0]

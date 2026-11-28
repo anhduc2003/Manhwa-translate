@@ -18,10 +18,22 @@ python export_onnx.py data                           # fillnet.onnx
 ## Why the pairs are synthetic
 
 A real page never shows what sat behind its lettering, so there is nothing to supervise a fill with.
-`build_patches.py` makes the pairs the other way round: it takes a patch of real artwork and covers
-part of it with strokes and blobs roughly the shape of lettering. The network learns to rebuild what
-the cover hides, and at run time the cover is the lettering. Training on 80 pages (4 080 patches) and
-validating on a held-out seventh of them, the best epoch reaches a hole L1 of **0.052** (~13/255).
+`build_pairs.py` makes the pairs the other way round: it finds the real lettering with PP-OCR, masks
+it exactly the way the eraser does, and cuts windows out of those regions. The network learns to
+rebuild what the mask hides, and at run time the mask is the lettering itself.
+
+`build_patches.py` is the first attempt, kept for the record: it covered random artwork with blobs,
+which is not the hole the eraser hands the model. Trained that way the model learned the wrong shape
+and painted a caption box brown, so the pipeline moved to `build_pairs.py`.
+
+`FillNet` is a three-level U-Net, ~470k weights, 7 input channels (RGB with the hole zeroed, the mask,
+and the paper colour on three constant planes) and 3 output channels. Its answer is **the paper colour
+plus what the network adds**, and the last layer starts at zero, so an untrained network already
+paints the right colour and training only sharpens it. Trained on 80 real pages (6 718 windows, a
+seventh of the pages held out) for 14 epochs, the best epoch reaches a hole L1 of **0.130**.
+
+The eraser then pins the fill's colour to the background around the hole, which removes the small
+brightness bias a model trained on thousands of regions always picks up.
 
 ## Measured against the app's eraser
 
@@ -32,17 +44,18 @@ way: how far the filled area's median colour sits from the paper ring around the
 | hole the model was given | median stain | regions over 25/255 |
 |---|---|---|
 | the whole box | 2.0 | 35 / 157 |
-| only the lettering pixels | **1.0** | **13 / 157** |
+| only the lettering pixels | **1.0** | **5 / 157** |
 | app's eraser, same regions | 5.0 | 19 / 157 |
 
 The first row is the unfair test: painting a whole box throws away artwork the model never had to
-touch. Limited to the lettering — which is how it would run — it wins on both counts. The gains are
-largest exactly where the surface fit fails: the `OMEGASCANS.ORG` watermark goes from 107 to 16 on one
-page and from 19 to 83 on another, `HuMP` from 53 to 1, `品` from 43 to 8, and small text over dark
-artwork on the credits page from 69 to 29.
+touch. Limited to the lettering — which is how it runs — and with the colour pinned to the background,
+it wins on both counts. The gains are largest exactly where the surface fit fails: the `OMEGASCANS.ORG`
+watermark 107 → 16, `HuMP` 53 → 1, `品` 43 → 8, and small text over dark artwork on the credits page
+69 → 29.
 
-Two regions still get worse (`哥` 20 → 50, one watermark 19 → 83), and the worst region on the hardest
-page stays bad for both (169 → 128), so this is an improvement, not a solution.
+The case that started this: four caption boxes on a dark teal background where the blob-trained model
+painted brown. The current model, colour pinned, comes back at 0–2/255 from the background on all
+four.
 
 `export_onnx.py` writes `models/fillnet.onnx` (1 035 KB, checked against PyTorch to 1.6e-06) and a
 quantised `fillnet_int8.onnx` (343 KB).
