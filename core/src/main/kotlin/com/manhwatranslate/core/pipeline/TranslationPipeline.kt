@@ -553,7 +553,14 @@ class TranslationPipeline(
         val found = ArrayList<TextRegion>()
         for (angle in options.rotationAngles) {
             val rotation = ImageRotation.of(tile.image, angle)
-            val turned = ImageTile(tile.index, tile.rect, tile.image.rotated(rotation))
+            // The recognizer adds a tile's own offset to every box it returns, and a turned copy
+            // is not laid out at the tile's offset. Handing it a tile anchored at zero keeps that
+            // arithmetic honest: the boxes stay in turned-image coordinates until they are mapped.
+            val turned = ImageTile(
+                tile.index,
+                com.manhwatranslate.core.geometry.RectI(0, 0, rotation.width, rotation.height),
+                tile.image.rotated(rotation),
+            )
             val regions = try {
                 activeRecognizer.recognize(turned, options.script)
             } catch (error: Throwable) {
@@ -569,6 +576,7 @@ class TranslationPipeline(
                     lines = lines,
                     rotationDegrees = -angle,
                 )
+                    .translated(tile.rect.left, tile.rect.top)
                 found += if (pageOffsetY == 0) mapped else mapped.translated(0, -pageOffsetY)
             }
         }
