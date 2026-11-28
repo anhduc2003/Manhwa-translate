@@ -26,12 +26,14 @@ import com.manhwatranslate.core.render.PageCompositor
 import com.manhwatranslate.core.render.RenderItem
 import com.manhwatranslate.core.render.RenderStyle
 import com.manhwatranslate.core.scan.ImageTiler
+import com.manhwatranslate.core.scan.HeatmapRegions
 import com.manhwatranslate.core.scan.ImageTile
 import com.manhwatranslate.core.scan.RegionGrouper
 import com.manhwatranslate.core.scan.RegionMerger
 import com.manhwatranslate.core.scan.RegionSplitter
 import com.manhwatranslate.core.scan.SfxFilter
 import com.manhwatranslate.core.scan.SfxSensitivity
+import com.manhwatranslate.core.scan.TextDetector
 import com.manhwatranslate.core.translate.TranslationService
 import kotlinx.coroutines.CancellationException
 
@@ -53,6 +55,11 @@ data class PipelineOptions(
     val boxExpansion: Float = 1.0f,
     val sfxSensitivity: SfxSensitivity = SfxSensitivity.MEDIUM,
     val matchBackgroundColor: Boolean = true,
+    /**
+     * Lets the text detector look for lettering the OCR engine did not report and offers each find
+     * back to the engine, which is how small credits and stylised sound effects get read at all.
+     */
+    val detectMissedText: Boolean = false,
     /**
      * Tallest slice processed at once. Webtoon strips reach tens of thousands of pixels, more than
      * a phone can hold as one bitmap; the pipeline works through [maxBandHeight] slices instead and
@@ -83,6 +90,8 @@ class TranslationPipeline(
      * different protocol would otherwise turn every page into "no dialogue found".
      */
     private val backupRecognizer: TileRecognizer? = null,
+    /** Second pair of eyes for lettering the recognizer skipped; see [PipelineOptions.detectMissedText]. */
+    private val textDetector: TextDetector? = null,
 ) {
     private val layoutEngine = TextLayoutEngine(measurer)
     private var activeRecognizer: TileRecognizer = recognizer
@@ -519,6 +528,52 @@ class TranslationPipeline(
         return raw
     }
 
+    /**
+     * Asks the detector for lettering the recognizer did not report, then reads each find on its own.
+     * A proposal only becomes a region when the OCR engine reads text inside it, so the detector can
+     * be generous about what looks like lettering without erasing artwork on a guess.
+     */
+    private suspend fun recognizeMissed(
+        page: ArgbImage,
+        known: List<TextRegion>,
+        options: PipelineOptions,
+        warnings: MutableList<String>,
+        onProgress: (PipelineProgress) -> Unit,
+    ): List<TextRegion> {
+        val detector = textDetector ?: return emptyList()
+        val proposals = try {
+            HeatmapRegions.uncovered(detector.detect(page), known.map { it.box })
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            warnings += "Dò chữ bổ sung lỗi: ${error.message ?: error.javaClass.simpleName}"
+            return emptyList()
+        }
+        if (proposals.isEmpty()) return emptyList()
+        onProgress(
+            PipelineProgress.of(
+                PipelineStage.DETECTING,
+                0.45f,
+                "Đọc thêm ${proposals.size} vùng chữ bỏ sót",
+            ),
+        )
+        val found = ArrayList<TextRegion>()
+        proposals.forEachIndexed { index, box ->
+            val crop = box.expanded(EXTRA_PADDING).clamped(page.width, page.height) ?: return@forEachIndexed
+            if (crop.width < MIN_EXTRA_SIDE || crop.height < MIN_EXTRA_SIDE) return@forEachIndexed
+            val tile = ImageTile(index, crop, page.crop(crop))
+            val regions = try {
+                activeRecognizer.recognize(tile, options.script)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                emptyList()
+            }
+            found += regions
+                .filter { it.letterCount >= options.minLetterCount.coerceAtLeast(1) }
+                .map { it.translated(crop.left, crop.top) }
+        }
+        return found
+    }
+
     private suspend fun retryWithBackup(
         error: Throwable,
         tile: ImageTile,
@@ -567,6 +622,9 @@ class TranslationPipeline(
                 pageOffsetY = pageOffsetY,
             )
         }
+        if (options.detectMissedText) {
+            raw = raw + recognizeMissed(page, raw, options, warnings, onProgress)
+        }
         val refined = RegionMerger.refine(raw, mergerOptions)
         val grouped = RegionSplitter.split(page, RegionGrouper.group(page, refined, grouperOptions), splitterOptions)
             .filter { region ->
@@ -595,6 +653,12 @@ class TranslationPipeline(
 
         /** Shortest tile the retry pass may use, so the recognizer always gains resolution. */
         const val MIN_RETRY_TILE_HEIGHT = 400
+
+        /** Room kept around a detected box so a letter clipped by the model still reaches the OCR. */
+        const val EXTRA_PADDING = 4
+
+        /** A crop narrower or shorter than this has too few pixels to read anything in. */
+        const val MIN_EXTRA_SIDE = 12
     }
 
     private fun isFlat(image: ArgbImage): Boolean {

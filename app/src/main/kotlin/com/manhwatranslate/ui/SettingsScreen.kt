@@ -1505,6 +1505,23 @@ private fun OcrPickerSheet(
     ) {
         SheetHeader(palette, "Nhận diện chữ (OCR)", onClose)
 
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.cardBg)
+                .border(1.dp, palette.cardBorder, RoundedCornerShape(16.dp)),
+        ) {
+            SheetToggleRow(
+                palette = palette,
+                title = "Dò thêm chữ bị bỏ sót",
+                subtitle = "Chạy ngay trên máy bằng mô hình nhúng trong app, không gửi ảnh đi đâu",
+                checked = settings.detectMissedText,
+                onCheckedChange = { value -> onUpdate { it.copy(detectMissedText = value) } },
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+
         OcrProviderType.entries.forEach { provider ->
             val isSelected = settings.ocrProvider == provider
             val shape = RoundedCornerShape(16.dp)

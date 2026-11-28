@@ -10,6 +10,7 @@ import com.manhwatranslate.core.pipeline.TileRecognizer
 import com.manhwatranslate.core.pipeline.TranslationPipeline
 import com.manhwatranslate.core.render.PageCompositor
 import com.manhwatranslate.core.scan.ImageTiler
+import com.manhwatranslate.core.scan.TextDetector
 import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.core.translate.TranslationService
 import com.manhwatranslate.core.translate.mergeTranslations
@@ -27,6 +28,8 @@ class TranslationEngine(
     private val providerResolver: (AppSettings) -> TranslationProvider,
     private val backupsResolver: (AppSettings) -> List<TranslationProvider> = { emptyList() },
     private val backupRecognizer: TileRecognizer? = null,
+    /** The trained text detector, used only when the settings ask for missed lettering. */
+    private val textDetector: TextDetector? = null,
 ) {
 
     suspend fun processPage(
@@ -43,6 +46,7 @@ class TranslationEngine(
             measurer = measurer,
             compositor = compositor,
             backupRecognizer = backupRecognizer,
+            textDetector = textDetector,
         )
         val options = settings.toPipelineOptions().copy(
             maxTileHeight = tileHeightFor(page),
@@ -96,6 +100,7 @@ class TranslationEngine(
             measurer = measurer,
             compositor = compositor,
             backupRecognizer = backupRecognizer,
+            textDetector = textDetector,
         )
         return pipeline.recompose(cleaned, regions, translations, options)
     }
