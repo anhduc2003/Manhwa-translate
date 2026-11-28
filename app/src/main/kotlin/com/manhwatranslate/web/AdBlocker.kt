@@ -78,6 +78,8 @@ class AdBlocker(private val assetReader: (String) -> String?) {
             "ins.adsbygoogle", ".adsbygoogle", "[id^=\"google_ads\"]", "[id^=\"div-gpt-ad\"]",
             "[class*=\"ad-slot\"]", "[class*=\"advert\"]", "[data-ad-slot]", "[id*=\"taboola\"]",
             "[id*=\"outbrain\"]", ".OUTBRAIN", "[class*=\"sponsored\"]",
+            "[data-ad]", "[data-ad-whitelist]", "[data-ad-unit]", "[data-ad-client]",
+            "[data-advertisement]", "[data-ads]", "[class*=\"ai-top-bar\"]",
             "iframe[src*=\"doubleclick\"]", "iframe[src*=\"googlesyndication\"]",
             "iframe[src*=\"adservice\"]",
         ),
@@ -153,7 +155,11 @@ class AdBlocker(private val assetReader: (String) -> String?) {
             if (css.isNotBlank()) parts += css
         }
         parts += COOKIE_SELECTORS
-        return parts.joinToString(",")
+        val joined = parts.joinToString(",").trim()
+        if (joined.isEmpty()) return ""
+        // A style element needs a rule, not a bare selector list: without the declaration block
+        // the browser drops the whole sheet and every selector above hides nothing.
+        return "$joined{display:none!important;}"
     }
 
     private fun activeSources(): List<FilterSet> {
@@ -177,6 +183,8 @@ class AdBlocker(private val assetReader: (String) -> String?) {
             'ins.adsbygoogle', '.adsbygoogle', '[id^="google_ads"]', '[id^="div-gpt-ad"]',
             '[class*="ad-slot"]', '[class*="advert"]', '[data-ad-slot]', '[id*="taboola"]',
             '[id*="outbrain"]', '.OUTBRAIN', '[class*="sponsored"]',
+            '[data-ad]', '[data-ad-whitelist]', '[data-ad-unit]', '[data-ad-client]',
+            '[data-advertisement]', '[data-ads]', '[class*="ai-top-bar"]',
             'iframe[src*="doubleclick"]', 'iframe[src*="googlesyndication"]',
             'iframe[src*="adservice"]'
           ];

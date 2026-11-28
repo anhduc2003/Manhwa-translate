@@ -100,21 +100,31 @@ class TextMaskBuilder(
         }
 
         val coverage = marked.toFloat() / mask.size.toFloat()
-        var fillRectangle = false
         if (coverage < options.minCoverage) {
-            if (roiHasArea(roi) && region.letterCount > 0) {
-                for (index in roi.indices) if (roi[index].toInt() != 0) mask[index] = 1
-                fillRectangle = true
-            } else {
-                return null
+            if (!roiHasArea(roi) || region.letterCount <= 0) return null
+            if (marked == 0) {
+                // The mask found nothing at all. Painting the whole box would leave a rectangle of
+                // estimated paper over a bubble that is not that colour, which is more visible than
+                // the lettering it removed, so only pixels that still look like ink are taken.
+                var rescued = 0
+                for (y in 0 until height) {
+                    for (x in 0 until width) {
+                        val index = y * width + x
+                        if (roi[index].toInt() == 0) continue
+                        val pixel = pixels[index]
+                        if (Colors.distance(pixel, backgroundAt(x, y)) <= options.globalTolerance * 0.5f) continue
+                        if (Colors.distance(pixel, ink) >= Colors.distance(pixel, paper)) continue
+                        mask[index] = 1
+                        rescued++
+                    }
+                }
+                if (rescued == 0) return null
             }
         }
 
         val metrics = InkAnalyzer.analyze(mask, width, height)
-        if (!fillRectangle) {
-            Morphology.close(mask, width, height, options.closingRadius)
-            Morphology.dilate(mask, width, height, options.dilation)
-        }
+        Morphology.close(mask, width, height, options.closingRadius)
+        Morphology.dilate(mask, width, height, options.dilation)
         if (Morphology.countSet(mask) == 0) return null
 
         return TextMask(
@@ -125,7 +135,6 @@ class TextMaskBuilder(
             data = mask,
             backgroundArgb = surface?.argbAt(width / 2, height / 2) ?: paper,
             backgroundContrast = paperTexture(pixels, samples, width, height),
-            fillRectangle = fillRectangle,
             inkArgb = ink,
             surface = surface,
             metrics = metrics,

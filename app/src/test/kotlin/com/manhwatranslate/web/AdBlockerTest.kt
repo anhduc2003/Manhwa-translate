@@ -35,6 +35,16 @@ class AdBlockerTest {
     }
 
     @Test
+    fun `the injected stylesheet is a real rule, not a bare selector list`() {
+        val css = blocker.cssFor("https://omegascans.org/series/sticky-rangers/chapter-1")
+
+        assertTrue(css.endsWith("{display:none!important;}"), "a style element needs a declaration block")
+        assertTrue(css.contains("[data-ad-whitelist]"))
+        assertTrue(css.contains("[class*=\"ai-top-bar\"]"))
+        assertTrue(css.contains("[class*=\"cookie-consent\"]"))
+    }
+
+    @Test
     fun `the cleaning script targets ads, cookie walls and hidden links`() {
         val script = AdBlocker({ null }).pageScript
         assertTrue(script.contains("adsbygoogle"))
