@@ -28,6 +28,10 @@ data class DownloadProgress(
  * screen can show how much of the model has arrived. The file is written to a temp name first and
  * only moved into place once it is complete, so an interrupted download never leaves a half
  * model behind that the loader would try to open.
+ *
+ * The partial file survives the app being closed: the next attempt asks the server for the rest
+ * with a Range request and appends to it, so a model that is hundreds of megabytes does not start
+ * over every time the phone leaves the app or the connection drops.
  */
 class ModelDownloader(
     private val context: Context,
@@ -60,10 +64,26 @@ class ModelDownloader(
             total: Long,
             onProgress: (DownloadProgress) -> Unit,
         ) {
-            target.outputStream().use { output ->
+            streamTo(target, input, total, start = 0L, append = false, onProgress = onProgress)
+        }
+
+        /**
+         * Streams [input] into [target], starting from [start] bytes already there when [append] is
+         * set, so the progress the caller sees counts the part that was downloaded before.
+         */
+        fun streamTo(
+            target: File,
+            input: java.io.InputStream,
+            total: Long,
+            start: Long,
+            append: Boolean,
+            onProgress: (DownloadProgress) -> Unit,
+        ) {
+            val stream = if (append) java.io.FileOutputStream(target, true) else target.outputStream()
+            stream.use { output ->
                 val buffer = ByteArray(64 * 1024)
                 var read: Int
-                var downloaded = 0L
+                var downloaded = start
                 while (input.read(buffer).also { read = it } != -1) {
                     output.write(buffer, 0, read)
                     downloaded += read
@@ -76,6 +96,12 @@ class ModelDownloader(
                     )
                 }
             }
+        }
+
+        /** Total size out of `Content-Range: bytes 1000-1999/2000`, or null when the server hides it. */
+        fun totalFromContentRange(header: String?): Long? {
+            val total = header?.substringAfterLast('/', "")?.trim().orEmpty()
+            return total.toLongOrNull()?.takeIf { it > 0 }
         }
 
         /** A model name that stays on the local filesystem no matter what the server calls it. */
@@ -102,31 +128,49 @@ class ModelDownloader(
             onProgress: (DownloadProgress) -> Unit,
         ): ModelDownload = withContext(Dispatchers.IO) {
             targetDir.mkdirs()
-            val request = Request.Builder().url(url).build()
+            val partial = partialFile(targetDir, url)
+            val already = if (partial.exists()) partial.length() else 0L
+            val request = Request.Builder()
+                .url(url)
+                .apply { if (already > 0) header("Range", "bytes=$already-") }
+                .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw IOException("Máy chủ trả lỗi HTTP ${response.code}")
                 }
                 val body = response.body ?: throw IOException("Không có dữ liệu tải về")
-                val total = body.contentLength().coerceAtLeast(0L)
+                // A server that ignores the Range header answers 200 with the whole file; only a
+                // 206 means the bytes after `already` are what is arriving.
+                val appending = already > 0 && response.code == 206
+                val start = if (appending) already else 0L
+                val total = if (appending) {
+                    totalFromContentRange(response.header("Content-Range"))
+                        ?: (start + body.contentLength()).coerceAtLeast(0L)
+                } else {
+                    body.contentLength().coerceAtLeast(0L)
+                }
                 val name = fileNameFrom(url, response.header("Content-Disposition"))
-                val temp = File(targetDir, ".$name.part")
                 val final = File(targetDir, name)
                 body.byteStream().use { input ->
-                    streamTo(temp, input, total, onProgress)
+                    streamTo(partial, input, total, start, appending, onProgress)
                 }
-                if (total > 0 && temp.length() < total) {
-                    temp.delete()
-                    throw IOException("Tải mô hình không đầy đủ (${temp.length()}/$total byte)")
+                if (total > 0 && partial.length() < total) {
+                    // Keep the part file: the next attempt asks for the rest instead of starting over.
+                    throw IOException(
+                        "Tải chưa xong (${partial.length()}/$total byte) — bấm tải lại để tải tiếp",
+                    )
                 }
                 if (final.exists()) final.delete()
-                if (!temp.renameTo(final)) {
-                    temp.delete()
+                if (!partial.renameTo(final)) {
                     throw IOException("Không lưu được mô hình vào bộ nhớ")
                 }
                 ModelDownload(final.absolutePath, name, final.length())
             }
         }
+
+        /** The half-downloaded file for [url], named so the same URL resumes the same bytes. */
+        fun partialFile(targetDir: File, url: String): File =
+            File(targetDir, ".${fileNameFrom(url, null)}.part")
     }
 
     /**
@@ -137,4 +181,11 @@ class ModelDownloader(
         url: String,
         onProgress: (DownloadProgress) -> Unit,
     ): ModelDownload = downloadTo(client, modelsDir, url, onProgress)
+
+    /** Bytes of [url] already on disk from an earlier attempt, for the settings screen to show. */
+    fun partialBytes(url: String): Long {
+        if (url.isBlank()) return 0L
+        val partial = partialFile(modelsDir, url)
+        return if (partial.exists()) partial.length() else 0L
+    }
 }

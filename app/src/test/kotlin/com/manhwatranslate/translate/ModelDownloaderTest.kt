@@ -87,6 +87,95 @@ class ModelDownloaderTest {
     }
 
     @Test
+    fun `resumes a half downloaded model with a range request`() = runBlocking {
+        val head = ByteArray(1000) { 7 }
+        val tail = ByteArray(200 * 1024) { 9 }
+        val partial = File(tempDir, ".model.gguf.part")
+        partial.writeBytes(head)
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader("Content-Range", "bytes 1000-${1000 + tail.size - 1}/${1000 + tail.size}")
+                .setBody(okio.Buffer().write(tail)),
+        )
+        server.start()
+        try {
+            val progress = ArrayList<DownloadProgress>()
+            val model = ModelDownloader.downloadTo(
+                client = ModelDownloader.client(),
+                targetDir = tempDir,
+                url = server.url("/model.gguf").toString(),
+                onProgress = { progress += it },
+            )
+
+            assertEquals("bytes=1000-", server.takeRequest().getHeader("Range"))
+            assertEquals((1000 + tail.size).toLong(), model.bytes)
+            val written = File(model.path).readBytes()
+            assertEquals(head.toList(), written.take(1000))
+            assertEquals(tail.toList(), written.drop(1000))
+            assertTrue(
+                progress.first().bytes in 1000L until (1000L + tail.size),
+                "progress counts the bytes already on disk",
+            )
+            assertEquals(1f, progress.last().fraction, 0.001f)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `a server that ignores the range restarts the file`() = runBlocking {
+        val payload = ByteArray(1500) { 3 }
+        File(tempDir, ".model.gguf.part").writeBytes(ByteArray(900) { 1 })
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(payload)))
+        server.start()
+        try {
+            val model = ModelDownloader.downloadTo(
+                client = ModelDownloader.client(),
+                targetDir = tempDir,
+                url = server.url("/model.gguf").toString(),
+                onProgress = {},
+            )
+            assertEquals(1500L, model.bytes)
+            assertEquals(payload.toList(), File(model.path).readBytes().toList())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `an interrupted download keeps its part file for the next attempt`() = runBlocking {
+        File(tempDir, ".model.gguf.part").writeBytes(ByteArray(500) { 2 })
+        val server = MockWebServer()
+        // A 206 that promises 4000 bytes and then drops the connection after 1000 of them.
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader("Content-Range", "bytes 500-3999/4000")
+                .setBody(okio.Buffer().write(ByteArray(1000) { 4 })),
+        )
+        server.start()
+        try {
+            assertThrows(java.io.IOException::class.java) {
+                runBlocking {
+                    ModelDownloader.downloadTo(
+                        client = ModelDownloader.client(),
+                        targetDir = tempDir,
+                        url = server.url("/model.gguf").toString(),
+                        onProgress = {},
+                    )
+                }
+            }
+            val kept = File(tempDir, ".model.gguf.part")
+            assertEquals(1500L, kept.length(), "the bytes stay for the next attempt")
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `an http error is reported instead of writing a file`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(404).setBody("not found"))

@@ -226,9 +226,10 @@ class WebImageBridge(
                     // A page with nothing translated is left exactly as the site served it: erasing
                     // the lettering and drawing the Korean back is what made pages look untouched.
                     if (translated > 0) publish(image.index, result.image)
-                    if (settings.provider != TranslationProviderType.ON_DEVICE &&
-                        result.regions.isNotEmpty()
-                    ) {
+                    // Only a page drawn by the on-device model is worth a second pass: when the
+                    // chosen backend already ran, refining would translate the same strip twice
+                    // and draw it twice for the same text.
+                    if (fast !== settings && result.regions.isNotEmpty()) {
                         refine = { refinePage(image, result, settings) }
                     }
                 } finally {
