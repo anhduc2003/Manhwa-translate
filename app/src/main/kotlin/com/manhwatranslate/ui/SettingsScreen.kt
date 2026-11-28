@@ -85,6 +85,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -93,8 +96,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.manhwatranslate.core.erase.EraseMode
+import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.layout.FontWeightLevel
+import com.manhwatranslate.render.ManhwaFonts
 import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.model.SourceScript
 import com.manhwatranslate.core.model.TranslationLanguage
@@ -1861,12 +1866,12 @@ private fun TypographySheet(
     onClose: () -> Unit,
 ) {
     val fontModes = listOf(
-        FontMode.AUTO to "Tự động",
-        FontMode.SANS to "Không chân",
-        FontMode.SERIF to "Có chân",
-        FontMode.CONDENSED to "Hẹp",
-        FontMode.MONOSPACE to "Đều",
-        FontMode.CUSTOM to "Font tải lên",
+        FontMode.AUTO to "Theo tranh",
+        FontMode.SANS to "Thoại",
+        FontMode.SERIF to "Kể chuyện",
+        FontMode.CONDENSED to "Hét",
+        FontMode.MONOSPACE to "Máy chữ",
+        FontMode.CUSTOM to "Font của bạn",
     )
     val weights = listOf(
         (null as FontWeightLevel?) to "Tự động",
@@ -1894,6 +1899,14 @@ private fun TypographySheet(
             options = fontModes,
             selected = settings.fontMode,
             onSelect = { mode -> onUpdate { it.copy(fontMode = mode) } },
+        )
+        FontSampleCard(palette = palette, mode = settings.fontMode)
+        Text(
+            text = "Bộ font truyện tranh có sẵn trong app: mỗi bong bóng tự lấy kiểu chữ khớp với " +
+                "chữ gốc — nét mảnh hay đậm, nghiêng, hay kiểu hét trên tiêu đề.",
+            color = palette.textSecondary,
+            fontSize = 12.5.sp,
+            lineHeight = 17.sp,
         )
 
         if (settings.fontMode == FontMode.CUSTOM) {
@@ -1929,6 +1942,52 @@ private fun TypographySheet(
             selected = settings.fontWeight,
             onSelect = { weight -> onUpdate { it.copy(fontWeight = weight) } },
         )
+    }
+}
+
+/** Shows the chosen lettering on a real Vietnamese sample, so the choice is visible. */
+@Composable
+private fun FontSampleCard(palette: SettingsPalette, mode: FontMode) {
+    val assets = LocalContext.current.assets
+    val family = when (mode) {
+        FontMode.AUTO -> FontFamilyKind.SANS
+        FontMode.SANS -> FontFamilyKind.SANS
+        FontMode.SERIF -> FontFamilyKind.SERIF
+        FontMode.CONDENSED -> FontFamilyKind.CONDENSED
+        FontMode.MONOSPACE -> FontFamilyKind.MONOSPACE
+        FontMode.CUSTOM -> FontFamilyKind.CUSTOM
+    }
+    val sampleFamily = ManhwaFonts.sampleAsset(family)
+        ?.let { path -> runCatching { FontFamily(Font(path, assets)) }.getOrNull() }
+        ?: FontFamily.Default
+
+    MinimalSettingsCard(palette) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "Mẫu chữ",
+                color = palette.textSecondary,
+                fontSize = 11.5.sp,
+            )
+            Text(
+                text = "Đừng động vào cô ấy! Ế ộ ữ ợ",
+                color = palette.textPrimary,
+                fontFamily = sampleFamily,
+                fontSize = 20.sp,
+                lineHeight = 26.sp,
+            )
+            if (mode == FontMode.AUTO) {
+                Text(
+                    text = "Đang chạy: ${ManhwaFonts.label(FontFamilyKind.SANS)}",
+                    color = palette.textSecondary,
+                    fontSize = 11.5.sp,
+                )
+            }
+        }
     }
 }
 

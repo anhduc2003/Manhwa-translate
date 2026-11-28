@@ -1,5 +1,6 @@
 package com.manhwatranslate.render
 
+import android.content.res.AssetManager
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Build
@@ -8,10 +9,13 @@ import com.manhwatranslate.core.layout.FontSpec
 import com.manhwatranslate.core.layout.FontWeightLevel
 import com.manhwatranslate.core.layout.TextMeasurer
 
-class AndroidTextMeasurer : TextMeasurer {
+class AndroidTextMeasurer(
+    private val assets: AssetManager? = null,
+) : TextMeasurer {
 
     private val paints = HashMap<Long, Paint>()
     private val typefaces = HashMap<String, Typeface>()
+    private val assetTypefaces = HashMap<String, Typeface?>()
 
     /** A font the user imported, used when the style asks for [FontFamilyKind.CUSTOM]. */
     var customTypeface: Typeface? = null
@@ -23,18 +27,17 @@ class AndroidTextMeasurer : TextMeasurer {
         paints.clear()
     }
 
+
     fun typefaceFor(font: FontSpec): Typeface {
         val key = "${font.family}-${font.weight}-${font.italic}"
         return typefaces.getOrPut(key) {
-            val family = when (font.family) {
-                FontFamilyKind.SERIF -> "serif"
-                FontFamilyKind.CONDENSED -> "sans-serif-condensed"
-                FontFamilyKind.MONOSPACE -> "monospace"
-                FontFamilyKind.CUSTOM -> return@getOrPut customTypeface ?: Typeface.SANS_SERIF
-                FontFamilyKind.SANS -> "sans-serif"
-            }
             val style = if (font.italic) Typeface.ITALIC else Typeface.NORMAL
-            val base = Typeface.create(family, style)
+            val base = when (font.family) {
+                FontFamilyKind.CUSTOM ->
+                    return@getOrPut customTypeface ?: manhwa(font) ?: Typeface.SANS_SERIF
+                FontFamilyKind.MONOSPACE -> Typeface.create("monospace", style)
+                else -> manhwa(font) ?: Typeface.create(systemFamily(font.family), style)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 Typeface.create(base, font.weight.androidWeight, font.italic)
             } else {
@@ -42,6 +45,22 @@ class AndroidTextMeasurer : TextMeasurer {
                 Typeface.create(base, if (bold) style or Typeface.BOLD else style)
             }
         }
+    }
+
+    /** The bundled manhwa face for [font], or null when the family has none. */
+    private fun manhwa(font: FontSpec): Typeface? {
+        val path = ManhwaFonts.assetFor(font.family, font.weight, font.italic) ?: return null
+        val manager = assets ?: return null
+        return assetTypefaces.getOrPut(path) {
+            runCatching { Typeface.createFromAsset(manager, path) }.getOrNull()
+        }
+    }
+
+    private fun systemFamily(family: FontFamilyKind): String = when (family) {
+        FontFamilyKind.SERIF -> "serif"
+        FontFamilyKind.CONDENSED -> "sans-serif-condensed"
+        FontFamilyKind.MONOSPACE -> "monospace"
+        else -> "sans-serif"
     }
 
     fun newPaint(sizePx: Float, font: FontSpec): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
