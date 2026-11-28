@@ -12,7 +12,6 @@ class TextMask(
     val data: ByteArray,
     val backgroundArgb: Int,
     val backgroundContrast: Float,
-    val fillRectangle: Boolean = false,
     val inkArgb: Int = 0,
     val surface: BackgroundSurface? = null,
     val metrics: InkMetrics = InkMetrics.Empty,

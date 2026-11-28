@@ -38,6 +38,19 @@ data class TextLayout(
         val firstBaseline = blockTop + textSizePx * 0.82f
         return firstBaseline + lineIndex * lineHeightPx
     }
+
+    /**
+     * Extra scale the block needs so it cannot leave [box]. The search already shrinks the font,
+     * but a box that is too small for the translation at any readable size, or a text size the
+     * reader raised, can still overflow; compositors apply this so a line never spills onto the
+     * artwork next to the bubble.
+     */
+    fun scaleToFit(maxLineWidthPx: Float): Float {
+        if (fits) return 1f
+        val widthScale = if (maxLineWidthPx > 0f) box.width / maxLineWidthPx else 1f
+        val heightScale = if (blockHeightPx > 0f) box.height / blockHeightPx else 1f
+        return minOf(1f, widthScale, heightScale).coerceIn(0.05f, 1f)
+    }
 }
 
 /**

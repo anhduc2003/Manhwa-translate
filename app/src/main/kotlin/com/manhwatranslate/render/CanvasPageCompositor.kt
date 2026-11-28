@@ -43,6 +43,18 @@ class CanvasPageCompositor(private val measurer: AndroidTextMeasurer) : PageComp
         paint.textSize = layout.textSizePx
         paint.textAlign = Paint.Align.LEFT
 
+        val maxLineWidth = layout.lines.maxOfOrNull { paint.measureText(it) } ?: 0f
+        val fitScale = layout.scaleToFit(maxLineWidth)
+        if (fitScale < 0.999f) {
+            canvas.save()
+            canvas.scale(
+                fitScale,
+                fitScale,
+                layout.box.centerX.toFloat(),
+                layout.box.centerY.toFloat(),
+            )
+        }
+
         val strokeWidth = layout.textSizePx * style.strokeWidthFactor
         for ((index, line) in layout.lines.withIndex()) {
             if (line.isEmpty()) continue
@@ -76,6 +88,7 @@ class CanvasPageCompositor(private val measurer: AndroidTextMeasurer) : PageComp
             paint.color = palette.text
             canvas.drawText(line, left, baseline, paint)
         }
+        if (fitScale < 0.999f) canvas.restore()
     }
 
     private data class Palette(val text: Int, val stroke: Int, val shadow: Int)
