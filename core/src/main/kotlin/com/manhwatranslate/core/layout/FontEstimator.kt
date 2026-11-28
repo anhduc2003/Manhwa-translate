@@ -28,12 +28,12 @@ object FontEstimator {
         val ratio = if (lineHeight <= 0f) 0f else metrics.strokeWidthPx / lineHeight
         val weight = when {
             ratio <= 0f -> FontWeightLevel.BOLD
-            ratio < 0.075f -> FontWeightLevel.REGULAR
-            ratio < 0.115f -> FontWeightLevel.MEDIUM
-            ratio < 0.165f -> FontWeightLevel.BOLD
+            ratio < 0.10f -> FontWeightLevel.REGULAR
+            ratio < 0.16f -> FontWeightLevel.MEDIUM
+            ratio < 0.30f -> FontWeightLevel.BOLD
             else -> FontWeightLevel.BLACK
         }
-        val italic = kotlin.math.abs(metrics.slant) > 0.12f
+        val italic = kotlin.math.abs(metrics.slant) > 0.15f
         val family = preferredFamily ?: autoFamily(region)
         val size = (lineHeight * 0.78f).coerceIn(minSizePx, maxSizePx)
         return Result(

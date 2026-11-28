@@ -12,6 +12,7 @@ They were renamed to the role each one plays in the renderer:
 | `manhwa_sans_bold.ttf` | `000BlahBlahUCiCiel-Bold.ttf` | dialogue, emphatic |
 | `manhwa_sans_italic.ttf` | `000BlahBlahUCiCiel-Italic.ttf` | dialogue, slanted |
 | `manhwa_sans_bold_italic.ttf` | `000BlahBlahUCiCiel-BoldItalic.ttf` | dialogue, emphatic and slanted |
+| `manhwa_sans_black.ttf` | `000HundredWattiCiel-Bold.ttf` | dialogue, shouted |
 | `manhwa_serif_regular.ttf` | `000PiekosProiCiel-Regular.ttf` | narration |
 | `manhwa_serif_italic.ttf` | `000PiekosProiCiel-Italic.ttf` | narration, slanted |
 | `manhwa_display.ttf` | `000WhizBang-Roman.ttf` | shouts and short titles |
