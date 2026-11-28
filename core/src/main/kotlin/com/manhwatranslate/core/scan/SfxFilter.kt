@@ -77,7 +77,14 @@ object SfxFilter {
             reasons += "một từ đơn"
         }
 
+        // A sound effect is one shout: "BAM", "CRASH". Two words with a sentence shape are
+        // dialogue even when the letters are large and the bubble is drawn on the artwork, which
+        // is exactly what a spiky speech balloon looks like from the outside.
         val words = region.text.split(' ').count { word -> word.any { it.isLetter() } }
+        if (words >= 2 && letters >= 8) {
+            reasons += "câu thoại, không phải hiệu ứng"
+            return SfxAnalysis(false, 0, reasons)
+        }
         if (words >= 3 && letters >= 12) {
             reasons += "câu thoại, không phải hiệu ứng"
             return SfxAnalysis(false, 0, reasons)
@@ -87,7 +94,7 @@ object SfxFilter {
 
     /** Standard deviation of luminance in a band just outside the text box. */
     private fun surroundVariance(image: ArgbImage, region: TextRegion): Float {
-        val band = (region.box.width / 20).coerceIn(6, 28)
+        val band = (region.box.width / 40).coerceIn(4, 10)
         val outer = region.box.expanded(band).clamped(image.width, image.height) ?: return 0f
         val inner = region.box.expanded(-1)
         var sum = 0.0

@@ -42,6 +42,37 @@ class TextMaskBuilderTest {
     }
 
     @Test
+    fun `a stroke that reaches past the box is erased with the rest`() {
+        val image = page()
+        // A tail of a letter that was drawn outside the box OCR reported: a stray Y or P left
+        // standing next to the translation is more obvious than the whole original sentence.
+        // Connected to the lettering inside the box, so it is the same stroke continuing out.
+        for (y in 92 until 108) {
+            for (x in 100 until 126) image.set(x, y, Colors.opaque(16, 16, 16))
+        }
+
+        val mask = requireNotNull(builder.build(image, region()))
+
+        // Just outside the detected box on the left, still inside the erase margin.
+        val outside = mask.at(101 - mask.left, 100 - mask.top)
+        assertTrue(outside, "a stroke 4px outside the box must be erased with the rest")
+    }
+
+    @Test
+    fun `artwork in the margin is not swallowed by the mask`() {
+        val image = page()
+        // A red band just outside the detected box, the way bubble shading sits next to lettering.
+        for (y in 86 until 114) {
+            for (x in 96 until 104) image.set(x, y, Colors.opaque(200, 40, 40))
+        }
+
+        val mask = requireNotNull(builder.build(image, region()))
+
+        val band = mask.at(100 - mask.left, 100 - mask.top)
+        assertTrue(!band, "artwork beside the box must not be erased")
+    }
+
+    @Test
     fun `bubble background around the letters is kept`() {
         val mask = requireNotNull(builder.build(page(), region()))
         val nearCorner = mask.at(2, 2)
@@ -80,11 +111,14 @@ class TextMaskBuilderTest {
     }
 
     @Test
-    fun `mask stays inside the padded region bounds`() {
+    fun `mask reaches a little past the box but not across the page`() {
         val mask = requireNotNull(builder.build(page(), region()))
-        assertEquals(regionBox.left - 2, mask.left)
-        assertEquals(regionBox.top - 2, mask.top)
-        assertEquals(regionBox.width + 4, mask.width)
-        assertEquals(regionBox.height + 4, mask.height)
+
+        // Room for strokes drawn outside the detected box, bounded so a bad box cannot erase the page.
+        val margin = (regionBox.height * builder.options.eraseMarginFactor).toInt()
+        assertEquals(regionBox.left - 2 - margin, mask.left)
+        assertEquals(regionBox.top - 2 - margin, mask.top)
+        assertEquals(regionBox.width + 4 + 2 * margin, mask.width)
+        assertEquals(regionBox.height + 4 + 2 * margin, mask.height)
     }
 }
