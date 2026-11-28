@@ -1,7 +1,4 @@
-package com.manhwatranslate.render
-
-import com.manhwatranslate.core.layout.FontFamilyKind
-import com.manhwatranslate.core.layout.FontWeightLevel
+package com.manhwatranslate.core.layout
 
 /**
  * The manhwa lettering set that ships inside the app.

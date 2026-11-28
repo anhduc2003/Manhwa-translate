@@ -2,6 +2,7 @@ package com.manhwatranslate.render
 
 import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontWeightLevel
+import com.manhwatranslate.core.layout.ManhwaFonts
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull

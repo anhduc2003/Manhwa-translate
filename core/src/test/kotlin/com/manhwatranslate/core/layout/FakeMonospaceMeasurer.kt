@@ -7,13 +7,13 @@ class FakeMonospaceMeasurer(
 ) : TextMeasurer {
 
     override fun measureWidth(text: String, sizePx: Float, font: FontSpec): Float =
-        text.length * sizePx * widthFactor * weightFactor(font)
+        text.length * sizePx * (widthFactor * weightFactor(font) + font.tracking)
 
     override fun lineHeight(sizePx: Float, font: FontSpec): Float = sizePx * heightFactor
 
     override fun breakIndex(text: String, sizePx: Float, font: FontSpec, maxWidth: Float): Int {
         if (maxWidth <= 0f) return 1
-        val perChar = sizePx * widthFactor * weightFactor(font)
+        val perChar = sizePx * (widthFactor * weightFactor(font) + font.tracking)
         return (maxWidth / perChar).toInt().coerceIn(1, text.length)
     }
 

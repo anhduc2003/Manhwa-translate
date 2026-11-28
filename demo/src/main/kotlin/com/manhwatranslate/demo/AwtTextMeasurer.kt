@@ -9,9 +9,26 @@ import java.awt.font.FontRenderContext
 import java.awt.font.LineMetrics
 import java.awt.font.TextLayout
 
-class AwtTextMeasurer : TextMeasurer {
+class AwtTextMeasurer(private val fontDir: java.io.File? = DEFAULT_FONT_DIR) : TextMeasurer {
     private val context = FontRenderContext(null, true, true)
     private val cache = HashMap<Long, Font>()
+    private val assets = HashMap<String, Font?>()
+
+    /** Loads the same files the app ships, so a preview here is a preview of the app. */
+    private fun assetFont(path: String): Font? {
+        val dir = fontDir ?: return null
+        return assets.getOrPut(path) {
+            val file = java.io.File(dir, path.substringAfterLast('/'))
+            if (!file.isFile) return@getOrPut null
+            runCatching {
+                java.awt.Font.createFont(java.awt.Font.TRUETYPE_FONT, file)
+            }.getOrNull()
+        }
+    }
+
+    companion object {
+        val DEFAULT_FONT_DIR = java.io.File("app/src/main/assets/fonts")
+    }
 
     fun font(sizePx: Float, spec: FontSpec): Font {
         val family = when (spec.family) {
@@ -25,10 +42,20 @@ class AwtTextMeasurer : TextMeasurer {
             spec.weight == FontWeightLevel.REGULAR || spec.weight == FontWeightLevel.THIN -> Font.PLAIN
             else -> Font.BOLD
         } or if (spec.italic) Font.ITALIC else Font.PLAIN
-        val key = (sizePx.toBits().toLong() shl 8) or
-            (family.hashCode().toLong() and 0xFF) or
-            (style.toLong() shl 4)
-        return cache.getOrPut(key) { Font(family, style, 12).deriveFont(sizePx) }
+        val key = "$sizePx|${spec.family}|${spec.weight}|${spec.italic}|${spec.tracking}".hashCode().toLong()
+        return cache.getOrPut(key) {
+            val manhwa = com.manhwatranslate.core.layout.ManhwaFonts
+                .assetFor(spec.family, spec.weight, spec.italic)
+                ?.let { assetFont(it) }
+            val base = manhwa?.deriveFont(sizePx) ?: Font(family, style, 12).deriveFont(sizePx)
+            if (spec.tracking == 0f) {
+                base
+            } else {
+                val attributes = java.util.HashMap<java.awt.font.TextAttribute, Any>(base.getAttributes())
+                attributes[java.awt.font.TextAttribute.TRACKING] = spec.tracking
+                base.deriveFont(attributes)
+            }
+        }
     }
 
     fun font(sizePx: Float, bold: Boolean): Font =

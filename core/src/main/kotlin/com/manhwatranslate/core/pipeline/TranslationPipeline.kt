@@ -11,6 +11,7 @@ import com.manhwatranslate.core.image.Colors
 import com.manhwatranslate.core.layout.FontEstimator
 import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontMode
+import com.manhwatranslate.core.layout.FontTracking
 import com.manhwatranslate.core.layout.FontSpec
 import com.manhwatranslate.core.layout.LayoutStyle
 import com.manhwatranslate.core.layout.TextLayoutEngine
@@ -460,11 +461,12 @@ class TranslationPipeline(
             FontMode.MONOSPACE -> FontFamilyKind.MONOSPACE
             FontMode.CUSTOM -> FontFamilyKind.CUSTOM
         }
-        return FontSpec(
+        val font = FontSpec(
             family = family,
             weight = style.fontWeightOverride ?: estimated.weight,
             italic = estimated.italic,
         )
+        return font.copy(tracking = FontTracking.em(measurer, font))
     }
 
     private fun expandedBox(
@@ -695,9 +697,10 @@ class TranslationPipeline(
             maxSizePx = options.render.maxTextSizePx,
             minSizePx = options.render.minTextSizePx,
         )
-        return result.font.copy(
+        val font = result.font.copy(
             weight = options.render.fontWeightOverride ?: result.font.weight,
         )
+        return font.copy(tracking = FontTracking.em(measurer, font))
     }
 
     private fun compose(
