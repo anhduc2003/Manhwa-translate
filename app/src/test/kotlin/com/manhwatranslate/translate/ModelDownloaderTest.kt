@@ -198,4 +198,30 @@ class ModelDownloaderTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun `a packaged build is refused before it is downloaded`() {
+        val reason = ModelDownloader.urlProblem(
+            "https://huggingface.co/LiquidAI/LFM3/resolve/main/LFM3-Workspace_0.1.1_linux-x64_cli.tar.gz",
+        )
+
+        assertTrue(reason != null && reason.contains(".tar.gz"), "got: $reason")
+    }
+
+    @Test
+    fun `a link that is not a gguf is refused`() {
+        assertTrue(ModelDownloader.urlProblem("https://example.com/model.zip")!!.contains(".zip"))
+        assertTrue(ModelDownloader.urlProblem("https://example.com/model")!!.contains(".gguf"))
+        assertTrue(ModelDownloader.urlProblem("ftp://example.com/model.gguf")!!.contains("http"))
+        assertTrue(ModelDownloader.urlProblem("")!!.isNotBlank())
+    }
+
+    @Test
+    fun `a gguf link with a query string is accepted`() {
+        assertEquals(
+            null,
+            ModelDownloader.urlProblem("https://huggingface.co/u/r/resolve/main/model.Q4_K_M.gguf?download=true"),
+        )
+        assertEquals(null, ModelDownloader.urlProblem("https://example.com/MODEL.GGUF"))
+    }
 }

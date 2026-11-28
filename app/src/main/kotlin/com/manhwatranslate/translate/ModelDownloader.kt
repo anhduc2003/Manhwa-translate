@@ -104,6 +104,32 @@ class ModelDownloader(
             return total.toLongOrNull()?.takeIf { it > 0 }
         }
 
+        /** Packaged builds and archives, none of which a GGUF loader can open. */
+        private val notAModel = listOf(".tar.gz", ".tgz", ".zip", ".7z", ".rar", ".tar", ".bin", ".exe", ".sh")
+
+        /**
+         * Why [url] cannot be used as a model, or null when it looks like a .gguf file.
+         *
+         * A llama.cpp CLI build is not a model. Saving it under a .gguf name only moves the
+         * failure from the download to the loader, after the user has paid for a gigabyte of
+         * traffic, so the link is refused while it is still just text.
+         */
+        fun urlProblem(url: String): String? {
+            if (url.isBlank()) return "Dán link tới file mô hình .gguf trước"
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                return "Link phải bắt đầu bằng http:// hoặc https://"
+            }
+            val path = url.substringBefore('?').substringBefore('#').lowercase()
+            val packaged = notAModel.firstOrNull { path.endsWith(it) }
+            if (packaged != null) {
+                return "Link này là file $packaged, không phải mô hình .gguf. Dán link tới file .gguf."
+            }
+            if (!path.endsWith(".gguf")) {
+                return "Link này không trỏ tới file .gguf. Dán link tới file .gguf."
+            }
+            return null
+        }
+
         /** A model name that stays on the local filesystem no matter what the server calls it. */
         fun fileNameFrom(url: String, disposition: String?): String {
             val fromDisposition = disposition
@@ -181,6 +207,15 @@ class ModelDownloader(
         url: String,
         onProgress: (DownloadProgress) -> Unit,
     ): ModelDownload = downloadTo(client, modelsDir, url, onProgress)
+
+    /** Drops the half-downloaded file for [url]: bytes that can never become a usable model. */
+    fun discardPartial(url: String): Long {
+        if (url.isBlank()) return 0L
+        val partial = partialFile(modelsDir, url)
+        val bytes = if (partial.exists()) partial.length() else 0L
+        partial.delete()
+        return bytes
+    }
 
     /** Bytes of [url] already on disk from an earlier attempt, for the settings screen to show. */
     fun partialBytes(url: String): Long {

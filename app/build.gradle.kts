@@ -30,8 +30,8 @@ android {
         applicationId = "com.manhwatranslate"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.2.1"
+        versionCode = 8
+        versionName = "1.2.2"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -136,7 +136,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.exifinterface)
-    implementation(libs.google.play.services.auth)
 
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.korean)

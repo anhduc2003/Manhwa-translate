@@ -5,8 +5,6 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -43,9 +41,6 @@ import com.manhwatranslate.ui.WebReaderScreen
 import com.manhwatranslate.ui.WebReaderViewModel
 import com.manhwatranslate.ui.theme.ManhwaTranslateTheme
 import com.manhwatranslate.ui.theme.Motion
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -137,22 +132,11 @@ private fun AppRoot(
                         onIncomingConsumed()
                     }
                 }
-                val googleSignInLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.StartActivityForResult(),
-                ) { result ->
-                    CoroutineScope(Dispatchers.Main).launch {
-                        container.googleAuth.handleResult(result.data)
-                    }
-                }
                 HomeScreen(
                     viewModel = homeViewModel,
                     onOpenPage = { pageId -> navController.navigate("editor/$pageId") },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenWebReader = { navController.navigate("web") },
-                    onSignIn = {
-                        googleSignInLauncher.launch(container.googleAuth.signInIntent())
-                    },
-                    onSignOut = { homeViewModel.signOut() },
                 )
             }
 

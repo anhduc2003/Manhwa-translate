@@ -10,10 +10,8 @@ import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.FontStore
 import com.manhwatranslate.data.ImageStore
 import com.manhwatranslate.data.ProjectStore
-import com.manhwatranslate.auth.GoogleAuthManager
 import com.manhwatranslate.data.SecretsStore
 import com.manhwatranslate.data.SettingsRepository
-import com.manhwatranslate.data.UserSessionStore
 import com.manhwatranslate.pipeline.TranslationEngine
 import com.manhwatranslate.render.AndroidTextMeasurer
 import com.manhwatranslate.render.CanvasPageCompositor
@@ -26,6 +24,7 @@ import com.manhwatranslate.translate.LibreTranslateProvider
 import com.manhwatranslate.translate.LocalLlmTranslationProvider
 import com.manhwatranslate.translate.MlKitTranslationProvider
 import com.manhwatranslate.translate.ModelDownloader
+import com.manhwatranslate.translate.ModelDownloadManager
 import com.manhwatranslate.translate.MyMemoryTranslationProvider
 import com.manhwatranslate.translate.OpenAiTranslationProvider
 import com.manhwatranslate.core.model.OcrProviderType
@@ -45,14 +44,19 @@ class AppContainer(context: Context) {
     val modelDownloader = ModelDownloader(appContext, ModelDownloader.client())
 
     val settingsRepository = SettingsRepository(appContext)
-    val secretsStore = SecretsStore(appContext)
-    val userSessionStore = UserSessionStore(appContext)
-    val googleAuth = GoogleAuthManager(
-        context = appContext,
-        sessionStore = userSessionStore,
+
+    /** One download for the whole app, so leaving the settings screen does not lose it. */
+    val modelDownloadManager = ModelDownloadManager(
         scope = appScope,
-        webClientId = appContext.getString(com.manhwatranslate.R.string.default_web_client_id),
+        download = { url, onProgress -> modelDownloader.download(url, onProgress) },
+        persist = { model ->
+            settingsRepository.update {
+                it.copy(localLlmModelPath = model.path, localLlmModelName = model.name)
+            }
+        },
+        discard = { url -> modelDownloader.discardPartial(url) },
     )
+    val secretsStore = SecretsStore(appContext)
     val imageStore = ImageStore(appContext)
     val projectStore = ProjectStore(appContext, imageStore)
     val fontStore = FontStore(appContext)

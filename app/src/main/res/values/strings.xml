@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Manhwa Translate</string>
-    <!-- Web client ID dùng cho Google Sign-In. Thay bằng client ID OAuth của bạn từ Google Cloud Console. -->
-    <string name="default_web_client_id" translatable="false">YOUR_GOOGLE_WEB_CLIENT_ID</string>
 </resources>
