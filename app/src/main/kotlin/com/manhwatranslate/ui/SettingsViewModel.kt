@@ -21,6 +21,8 @@ data class SettingsUiState(
     val message: String? = null,
     val downloadingModel: Boolean = false,
     val downloadProgress: DownloadProgress = DownloadProgress(),
+    /** Bytes of the model URL already on disk from an earlier, interrupted attempt. */
+    val partialModelBytes: Long = 0L,
 )
 
 class SettingsViewModel(
@@ -34,7 +36,11 @@ class SettingsViewModel(
     init {
         viewModelScope.launch {
             container.settingsRepository.settings.collect { settings ->
-                _state.value = _state.value.copy(settings = settings, configuredKeys = readKeys())
+                _state.value = _state.value.copy(
+                    settings = settings,
+                    configuredKeys = readKeys(),
+                    partialModelBytes = container.modelDownloader.partialBytes(settings.localLlmModelUrl),
+                )
             }
         }
     }
@@ -212,11 +218,14 @@ class SettingsViewModel(
                 }
                 _state.value = _state.value.copy(
                     downloadingModel = false,
+                    partialModelBytes = 0L,
                     message = "Đã tải mô hình: ${model.name} (${formatMegabytes(model.bytes)})",
                 )
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     downloadingModel = false,
+                    partialModelBytes = container.modelDownloader
+                        .partialBytes(_state.value.settings.localLlmModelUrl),
                     message = error.message ?: "Tải mô hình thất bại",
                 )
             }

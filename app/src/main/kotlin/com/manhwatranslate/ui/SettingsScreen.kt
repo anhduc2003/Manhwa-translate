@@ -109,6 +109,7 @@ fun SettingsScreen(
         onPickFont = onPickFont,
         onPickLlmModel = onPickLlmModel,
         downloadingModel = state.downloadingModel,
+        partialModelBytes = state.partialModelBytes,
         downloadProgress = state.downloadProgress,
         onDownloadLlmModel = { viewModel.downloadLlmModel() },
         onClearFont = { viewModel.clearFont() },
@@ -130,6 +131,7 @@ internal fun SettingsContent(
     onPickFont: () -> Unit,
     onPickLlmModel: () -> Unit,
     downloadingModel: Boolean,
+    partialModelBytes: Long,
     downloadProgress: com.manhwatranslate.translate.DownloadProgress,
     onDownloadLlmModel: () -> Unit,
     onClearFont: () -> Unit,
@@ -319,12 +321,27 @@ internal fun SettingsContent(
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
+                            if (!downloadingModel && partialModelBytes > 0) {
+                                Text(
+                                    text = "Đã tải ${formatMegabytes(partialModelBytes)} từ lần trước — " +
+                                        "bấm Tải để tải tiếp, không phải làm lại từ đầu.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
                             Button(
                                 onClick = onDownloadLlmModel,
                                 enabled = !downloadingModel && settings.localLlmModelUrl.isNotBlank(),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(if (downloadingModel) "Đang tải…" else "Tải mô hình về máy")
+                                Text(
+                                    when {
+                                        downloadingModel -> "Đang tải…"
+                                        partialModelBytes > 0 -> "Tải tiếp mô hình"
+                                        else -> "Tải mô hình về máy"
+                                    },
+                                )
                             }
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(onClick = onPickLlmModel, modifier = Modifier.fillMaxWidth()) {
