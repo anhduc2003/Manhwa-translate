@@ -24,6 +24,7 @@ import com.manhwatranslate.translate.LibreTranslateProvider
 import com.manhwatranslate.translate.LocalLlmTranslationProvider
 import com.manhwatranslate.translate.MlKitTranslationProvider
 import com.manhwatranslate.translate.ModelDownloader
+import com.manhwatranslate.translate.ModelDownloadManager
 import com.manhwatranslate.translate.MyMemoryTranslationProvider
 import com.manhwatranslate.translate.OpenAiTranslationProvider
 import com.manhwatranslate.core.model.OcrProviderType
@@ -42,6 +43,18 @@ class AppContainer(context: Context) {
     val modelDownloader = ModelDownloader(appContext, ModelDownloader.client())
 
     val settingsRepository = SettingsRepository(appContext)
+
+    /** One download for the whole app, so leaving the settings screen does not lose it. */
+    val modelDownloadManager = ModelDownloadManager(
+        scope = appScope,
+        download = { url, onProgress -> modelDownloader.download(url, onProgress) },
+        persist = { model ->
+            settingsRepository.update {
+                it.copy(localLlmModelPath = model.path, localLlmModelName = model.name)
+            }
+        },
+        discard = { url -> modelDownloader.discardPartial(url) },
+    )
     val secretsStore = SecretsStore(appContext)
     val imageStore = ImageStore(appContext)
     val projectStore = ProjectStore(appContext, imageStore)
