@@ -404,7 +404,7 @@ private fun HomeHeader(
             } else {
                 Icon(
                     imageVector = Icons.Rounded.Person,
-                    contentDescription = if (user.isSignedIn) "Tài khoản" else "Đăng nhập Google",
+                    contentDescription = if (user.isSignedIn) "Tài khoản" else "Đăng nhập GitHub",
                     modifier = Modifier.size(20.dp),
                     tint = if (user.isSignedIn) {
                         MaterialTheme.colorScheme.onSecondaryContainer
@@ -440,15 +440,18 @@ private fun HomeHeader(
     if (showAccount) {
         AlertDialog(
             onDismissRequest = { showAccount = false },
-            title = { Text("Tài khoản Google", fontWeight = FontWeight.Bold) },
+            title = { Text("Tài khoản GitHub", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(user.displayName.ifBlank { "Người dùng Google" }, fontWeight = FontWeight.Medium)
+                    Text(user.displayName.ifBlank { user.username.ifBlank { "Người dùng GitHub" } }, fontWeight = FontWeight.Medium)
+                    if (user.username.isNotBlank()) {
+                        Text("@${user.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     if (user.email.isNotBlank()) {
                         Text(user.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(
-                        "Đăng nhập giúp đồng bộ cài đặt và lịch sử dịch giữa các thiết bị.",
+                        "Đăng nhập GitHub giúp quản lý tài khoản và đồng bộ dữ liệu giữa các thiết bị.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -136,7 +136,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.exifinterface)
-    implementation(libs.google.play.services.auth)
 
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.korean)

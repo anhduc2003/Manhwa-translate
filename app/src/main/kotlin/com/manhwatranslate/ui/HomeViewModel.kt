@@ -70,18 +70,27 @@ class HomeViewModel(
             }
         }
         viewModelScope.launch {
-            container.googleAuth.load()
+            container.githubAuth.load()
         }
         viewModelScope.launch {
-            container.googleAuth.user.collect { user ->
+            container.githubAuth.user.collect { user ->
                 _state.value = _state.value.copy(user = user)
             }
         }
     }
 
+    fun signIn(onStatus: (String) -> Unit = {}) {
+        container.githubAuth.startSignIn { status ->
+            if (status.isNotBlank()) {
+                _events.tryEmit(HomeEvent.Message(status))
+            }
+            onStatus(status)
+        }
+    }
+
     fun signOut() {
-        container.googleAuth.signOut()
-        _events.tryEmit(HomeEvent.Message("Đã đăng xuất khỏi Google"))
+        container.githubAuth.signOut()
+        _events.tryEmit(HomeEvent.Message("Đã đăng xuất khỏi GitHub"))
     }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {

@@ -12,20 +12,20 @@ import kotlinx.coroutines.flow.map
 
 private val Context.userDataStore: DataStore<Preferences> by preferencesDataStore(name = "manhwa_user")
 
-/** Người dùng đã đăng nhập qua Google, chỉ lưu thông tin hiển thị (không phải token). */
+/** Người dùng đã đăng nhập qua GitHub, chỉ lưu thông tin hiển thị (không phải access token). */
 data class UserProfile(
     val userId: String = "",
     val displayName: String = "",
     val email: String = "",
     val photoUrl: String = "",
-    val idToken: String = "",
+    val username: String = "",
 ) {
     val isSignedIn: Boolean get() = userId.isNotBlank()
 }
 
 /**
- * Lưu phiên đăng nhập Google trong DataStore thường. Token ID chỉ giữ tạm cho phiên hiện tại để
- * gửi lên server khi cần, còn thông tin hồ sơ (tên, email, ảnh) lưu lâu dài để hiển thị.
+ * Lưu phiên đăng nhập GitHub trong DataStore thường. Chỉ giữ hồ sơ hiển thị (id, tên, username,
+ * email, ảnh) để hiển thị; access token không được lưu lâu dài.
  */
 class UserSessionStore(private val context: Context) {
 
@@ -35,7 +35,7 @@ class UserSessionStore(private val context: Context) {
             displayName = prefs[KEY_DISPLAY_NAME].orEmpty(),
             email = prefs[KEY_EMAIL].orEmpty(),
             photoUrl = prefs[KEY_PHOTO_URL].orEmpty(),
-            idToken = prefs[KEY_ID_TOKEN].orEmpty(),
+            username = prefs[KEY_USERNAME].orEmpty(),
         )
     }
 
@@ -47,7 +47,7 @@ class UserSessionStore(private val context: Context) {
             prefs[KEY_DISPLAY_NAME] = profile.displayName
             prefs[KEY_EMAIL] = profile.email
             prefs[KEY_PHOTO_URL] = profile.photoUrl
-            if (profile.idToken.isNotBlank()) prefs[KEY_ID_TOKEN] = profile.idToken
+            prefs[KEY_USERNAME] = profile.username
         }
     }
 
@@ -60,6 +60,6 @@ class UserSessionStore(private val context: Context) {
         val KEY_DISPLAY_NAME = stringPreferencesKey("display_name")
         val KEY_EMAIL = stringPreferencesKey("email")
         val KEY_PHOTO_URL = stringPreferencesKey("photo_url")
-        val KEY_ID_TOKEN = stringPreferencesKey("id_token")
+        val KEY_USERNAME = stringPreferencesKey("username")
     }
 }

@@ -10,7 +10,7 @@ import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.FontStore
 import com.manhwatranslate.data.ImageStore
 import com.manhwatranslate.data.ProjectStore
-import com.manhwatranslate.auth.GoogleAuthManager
+import com.manhwatranslate.auth.GitHubAuthManager
 import com.manhwatranslate.data.SecretsStore
 import com.manhwatranslate.data.SettingsRepository
 import com.manhwatranslate.data.UserSessionStore
@@ -46,11 +46,11 @@ class AppContainer(context: Context) {
     val settingsRepository = SettingsRepository(appContext)
     val secretsStore = SecretsStore(appContext)
     val userSessionStore = UserSessionStore(appContext)
-    val googleAuth = GoogleAuthManager(
+    val githubAuth = GitHubAuthManager(
         context = appContext,
         sessionStore = userSessionStore,
         scope = appScope,
-        webClientId = appContext.getString(com.manhwatranslate.R.string.default_web_client_id),
+        clientId = appContext.getString(com.manhwatranslate.R.string.github_oauth_client_id),
     )
     val imageStore = ImageStore(appContext)
     val projectStore = ProjectStore(appContext, imageStore)
