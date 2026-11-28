@@ -79,16 +79,12 @@ class TextEraser(
     }
 
     /**
-     * True when the model painted a colour the flat background around it says cannot be right. A
-     * fill that comes back the wrong colour is the failure people actually see, and on a flat bubble
-     * or caption box the surrounding colour is not in doubt — so the surface fit takes over.
+     * Slides the fill until its colour matches the background around the hole, keeping whatever
+     * texture and gradient the model produced. A model trained on thousands of regions picks up a
+     * slight bias — a few levels too bright on a dark caption box — and that bias is exactly what
+     * reads as a wrongly coloured patch, so the colour is pinned to the surroundings instead.
      */
-    private fun driftsFromBackground(
-        rebuilt: ArgbImage,
-        crop: ArgbImage,
-        local: TextMask,
-        mask: TextMask,
-    ): Boolean {
+    private fun anchorColour(rebuilt: ArgbImage, crop: ArgbImage, local: TextMask, mask: TextMask) {
         val around = ArrayList<Int>(crop.pixels.size / 2)
         for (y in 0 until crop.height) {
             for (x in 0 until crop.width) {
@@ -103,15 +99,30 @@ class TextEraser(
                 if (mask.at(x, y)) filled += rebuilt.get(local.left + x, local.top + y)
             }
         }
-        if (around.isEmpty() || filled.isEmpty()) return false
+        if (around.isEmpty() || filled.isEmpty()) return
         val paper = medianColour(around)
         val paint = medianColour(filled)
-        val drift = maxOf(
-            kotlin.math.abs(Colors.red(paint) - Colors.red(paper)),
-            kotlin.math.abs(Colors.green(paint) - Colors.green(paper)),
-            kotlin.math.abs(Colors.blue(paint) - Colors.blue(paper)),
-        )
-        return drift > MODEL_COLOUR_DRIFT
+        val shiftRed = Colors.red(paper) - Colors.red(paint)
+        val shiftGreen = Colors.green(paper) - Colors.green(paint)
+        val shiftBlue = Colors.blue(paper) - Colors.blue(paint)
+        if (shiftRed == 0 && shiftGreen == 0 && shiftBlue == 0) return
+        for (y in 0 until mask.height) {
+            for (x in 0 until mask.width) {
+                if (!mask.at(x, y)) continue
+                val targetX = local.left + x
+                val targetY = local.top + y
+                val pixel = rebuilt.get(targetX, targetY)
+                rebuilt.set(
+                    targetX,
+                    targetY,
+                    Colors.opaque(
+                        (Colors.red(pixel) + shiftRed).coerceIn(0, 255),
+                        (Colors.green(pixel) + shiftGreen).coerceIn(0, 255),
+                        (Colors.blue(pixel) + shiftBlue).coerceIn(0, 255),
+                    ),
+                )
+            }
+        }
     }
 
     private fun medianColour(pixels: List<Int>): Int {
@@ -125,9 +136,6 @@ class TextEraser(
     private companion object {
         /** Real surroundings handed to the model around the region, so it can continue gradients. */
         const val MODEL_CONTEXT = 24
-
-        /** How far the fill may sit from the flat background around it before it is thrown away. */
-        const val MODEL_COLOUR_DRIFT = 32
     }
 
     private fun resolveMode(mask: TextMask): EraseMode = when (options.mode) {
@@ -186,9 +194,7 @@ class TextEraser(
             null
         } ?: return 0
         if (rebuilt.width != crop.width || rebuilt.height != crop.height) return 0
-        if (mask.backgroundContrast <= options.solidContrastThreshold && driftsFromBackground(rebuilt, crop, local, mask)) {
-            return 0
-        }
+        anchorColour(rebuilt, crop, local, mask)
         var erased = 0
         for (y in 0 until mask.height) {
             for (x in 0 until mask.width) {
