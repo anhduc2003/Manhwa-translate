@@ -39,7 +39,7 @@ hoàn thành toàn bộ quy trình dịch — không cần chụp màn hình, kh
 | **Inpaint giữ nền gốc** | Vá màu sát vân giấy, gradient và độ dốc của bong bóng. |
 | **Dịch linh hoạt** | Miễn phí không cần key, hoặc dùng Google Cloud, DeepL, Gemini, OpenAI. |
 | **AI offline** | Chạy model GGUF (llama.cpp) ngay trên máy, không cần mạng. |
-| **Trình đọc webtoon** | Đọc web, chặn quảng cáo, dịch ảnh trực tiếp trên trang. |
+| **Trình đọc webtoon** | Đọc web, chặn quảng cáo, tự dịch ảnh ngay khi trang tải xong và dò tiếp ảnh mới khi cuộn. |
 | **Tuỳ chỉnh** | Nhập font riêng, chỉnh cỡ chữ, kiểu chữ, màu và bóng. |
 
 ## Cài đặt
