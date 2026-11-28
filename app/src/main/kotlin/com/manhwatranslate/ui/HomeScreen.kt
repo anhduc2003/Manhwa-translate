@@ -42,13 +42,10 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -95,6 +92,8 @@ import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.SavedPage
 import com.manhwatranslate.ui.components.AccentPill
 import com.manhwatranslate.ui.components.AppLogo
+import com.manhwatranslate.ui.components.CustomManhwaHeroCard
+import com.manhwatranslate.ui.components.HeroStyleConfig
 import com.manhwatranslate.ui.components.GroupCard
 import com.manhwatranslate.ui.components.IconTile
 import com.manhwatranslate.ui.components.ManhwaBottomNavBar
@@ -192,6 +191,7 @@ internal fun HomeContent(
 ) {
     // 0 = Trang chủ, 2 = Thư viện (Tab 1 mở Đọc web, Tab 3 mở Cài đặt)
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
+    val context = LocalContext.current
 
     val historyBatches = remember(state.pages) {
         state.pages
@@ -248,15 +248,36 @@ internal fun HomeContent(
         ) {
             if (activeTab == 0) {
                 item {
-                    HeroCard(onPickImages = onPickImages, onCapture = onCapture)
+                    val latestThumb = remember(state.pages) {
+                        state.pages.firstOrNull()?.let { page ->
+                            File(context.filesDir, "pages/${page.id}/${page.fileNameThumb}")
+                        }
+                    }
+                    CustomManhwaHeroCard(
+                        onPickImages = onPickImages,
+                        onCapture = onCapture,
+                        artModel = latestThumb,
+                        style = HeroStyleConfig(
+                            cornerRadius = 28.dp,
+                            gradientColors = listOf(
+                                Color(0xFF331D60),
+                                Color(0xFF8B2464),
+                                Color(0xFFE87070),
+                            ),
+                            borderColors = listOf(
+                                Color(0x998C5CE6),
+                                Color(0x88E04F8E),
+                                Color(0xCCFF9B85),
+                            ),
+                            artAlpha = 0.42f,
+                            monochromeArt = true,
+                            artWidthFraction = 0.65f,
+                        ),
+                    )
                 }
 
                 item {
                     ConfigRow(settings = state.settings, onOpenSettings = onOpenSettings)
-                }
-
-                item {
-                    WebReaderRow(onClick = onOpenWebReader)
                 }
 
                 item {
@@ -385,150 +406,6 @@ private fun HomeHeader(
 }
 
 @Composable
-private fun HeroCard(onPickImages: () -> Unit, onCapture: () -> Unit) {
-    val accents = LocalAccents.current
-    val shape = RoundedCornerShape(26.dp)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(accents.heroStart, accents.heroMiddle, accents.heroEnd),
-                ),
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.24f), Color.White.copy(alpha = 0.06f)),
-                ),
-                shape = shape,
-            ),
-    ) {
-        // Họa tiết khung truyện Manhwa mờ phía bên phải
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val lineColor = Color.White.copy(alpha = 0.13f)
-            val fillTint = Color.White.copy(alpha = 0.05f)
-            val rightStart = size.width * 0.56f
-
-            drawRoundRect(
-                color = fillTint,
-                topLeft = Offset(rightStart, -12f),
-                size = Size(size.width * 0.24f, size.height * 0.52f),
-                cornerRadius = CornerRadius(18f, 18f),
-            )
-            drawRoundRect(
-                color = lineColor,
-                topLeft = Offset(rightStart, -12f),
-                size = Size(size.width * 0.24f, size.height * 0.52f),
-                cornerRadius = CornerRadius(18f, 18f),
-                style = Stroke(width = 2.5f),
-            )
-            drawRoundRect(
-                color = fillTint,
-                topLeft = Offset(size.width * 0.83f, 16f),
-                size = Size(size.width * 0.22f, size.height * 0.42f),
-                cornerRadius = CornerRadius(16f, 16f),
-            )
-            drawRoundRect(
-                color = lineColor,
-                topLeft = Offset(size.width * 0.83f, 16f),
-                size = Size(size.width * 0.22f, size.height * 0.42f),
-                cornerRadius = CornerRadius(16f, 16f),
-                style = Stroke(width = 2.5f),
-            )
-            // Bong bóng thoại nhỏ trang trí
-            drawOval(
-                color = Color.White.copy(alpha = 0.10f),
-                topLeft = Offset(size.width * 0.69f, size.height * 0.18f),
-                size = Size(size.width * 0.17f, size.height * 0.24f),
-            )
-            // Đường tốc độ (speed lines) nhẹ góc phải dưới
-            for (i in 0..4) {
-                val offset = i * 24f
-                drawLine(
-                    color = lineColor.copy(alpha = 0.09f),
-                    start = Offset(size.width * 0.68f + offset, size.height * 0.58f),
-                    end = Offset(size.width * 0.54f + offset, size.height),
-                    strokeWidth = 2f,
-                )
-            }
-        }
-
-        // Quầng sáng hồng dịu góc phải trên
-        Box(
-            modifier = Modifier
-                .size(160.dp)
-                .align(Alignment.TopEnd)
-                .offset(x = 34.dp, y = (-34).dp)
-                .background(
-                    Brush.radialGradient(
-                        listOf(Color(0x55FF8FB8), Color.Transparent),
-                    ),
-                ),
-        )
-
-        Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 22.dp)) {
-            Text(
-                text = "Dịch truyện\ntrong một chạm",
-                style = MaterialTheme.typography.displaySmall,
-                color = accents.onHero,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Bản dịch được vẽ thẳng vào bong bóng thoại.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = accents.onHeroMuted,
-            )
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = onPickImages,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = accents.heroButton,
-                        contentColor = accents.onHeroButton,
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.PhotoLibrary,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Chọn ảnh", fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = onCapture,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, accents.onHero.copy(alpha = 0.48f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color.White.copy(alpha = 0.10f),
-                        contentColor = accents.onHero,
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.PhotoCamera,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Chụp ảnh", fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ConfigRow(settings: AppSettings, onOpenSettings: () -> Unit) {
     GroupCard(glowBorder = true) {
         Row(
@@ -573,61 +450,6 @@ private fun ConfigRow(settings: AppSettings, onOpenSettings: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             AccentPill(text = settings.provider.shortLabel(), maxWidth = 112.dp)
             Spacer(Modifier.width(4.dp))
-            Icon(
-                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun WebReaderRow(onClick: () -> Unit) {
-    GroupCard(glowBorder = true) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconTile(icon = Icons.Outlined.Public)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "Đọc trên web",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "Dịch ảnh trang truyện trực tiếp",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF4ADE80))),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Rounded.Language,
-                    contentDescription = null,
-                    tint = Color(0xFF0F172A),
-                    modifier = Modifier.size(21.dp),
-                )
-            }
-            Spacer(Modifier.width(6.dp))
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
