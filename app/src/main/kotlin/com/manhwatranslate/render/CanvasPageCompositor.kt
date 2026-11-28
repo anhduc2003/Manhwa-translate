@@ -41,6 +41,7 @@ class CanvasPageCompositor(private val measurer: AndroidTextMeasurer) : PageComp
         paint.isSubpixelText = true
         paint.typeface = measurer.typefaceFor(layout.font)
         paint.textSize = layout.textSizePx
+        paint.letterSpacing = layout.font.tracking
         paint.textAlign = Paint.Align.LEFT
 
         val maxLineWidth = layout.lines.maxOfOrNull { paint.measureText(it) } ?: 0f

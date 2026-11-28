@@ -96,6 +96,15 @@ fun main(args: Array<String>) {
         widest + stroke > layout.box.width || layout.blockHeightPx > layout.box.height
     }
     println("Vùng có chữ tràn khỏi khung: $overflows/${result.regions.size}")
+    val fonts = result.regions.groupingBy { region -> describeFont(region.font) }.eachCount()
+    println("Phông chữ đã chọn: " + fonts.entries.sortedByDescending { it.value }.joinToString { "${it.key} x${it.value}" })
+    result.regions.forEach { region ->
+        val translation = result.translations.firstOrNull { it.regionId == region.id }
+        val size = translation?.let {
+            "%.1fpx".format(pipeline.layoutFor(region, it.translatedText, options).textSizePx)
+        } ?: "-"
+        println("  ${region.box} ${describeFont(region.font)} size=$size \"${region.text.take(30)}\"")
+    }
     println("Thời gian: ${elapsed}ms")
     println()
     if (System.getProperty("regiondebug") != null) {
@@ -264,3 +273,8 @@ private class PseudoTranslator : TranslationProvider {
         return if (cleaned.first().isUpperCase()) pick.replaceFirstChar { it.uppercase() } else pick
     }
 }
+
+private fun describeFont(font: com.manhwatranslate.core.layout.FontSpec): String =
+    "${font.family}/${font.weight}" +
+        (if (font.italic) "/italic" else "") +
+        (if (font.tracking != 0f) "/track=%.3f".format(font.tracking) else "")

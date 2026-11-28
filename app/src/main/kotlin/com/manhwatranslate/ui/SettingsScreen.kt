@@ -99,7 +99,7 @@ import com.manhwatranslate.core.erase.EraseMode
 import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontMode
 import com.manhwatranslate.core.layout.FontWeightLevel
-import com.manhwatranslate.render.ManhwaFonts
+import com.manhwatranslate.core.layout.ManhwaFonts
 import com.manhwatranslate.core.model.OcrProviderType
 import com.manhwatranslate.core.model.SourceScript
 import com.manhwatranslate.core.model.TranslationLanguage

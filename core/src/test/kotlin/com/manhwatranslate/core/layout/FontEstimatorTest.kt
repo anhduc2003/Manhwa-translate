@@ -62,15 +62,27 @@ class FontEstimatorTest {
     }
 
     @Test
-    fun `short all caps picks a condensed face`() {
+    fun `a short heavy shout picks the display face`() {
         val result = FontEstimator.estimate(
             region = region("BOOM", RectI(0, 0, 300, 60)),
-            metrics = InkMetrics(coverage = 0.3f, strokeWidthPx = 8f, slant = 0f, inkCount = 300),
+            metrics = InkMetrics(coverage = 0.4f, strokeWidthPx = 20f, slant = 0f, inkCount = 600),
             preferredFamily = null,
             maxSizePx = 96f,
             minSizePx = 11f,
         )
         assertEquals(FontFamilyKind.CONDENSED, result.font.family)
+    }
+
+    @Test
+    fun `caps dialogue that is not a shout keeps the dialogue family`() {
+        val result = FontEstimator.estimate(
+            region = region("ARE YOU A DESTROYER?", RectI(0, 0, 300, 60)),
+            metrics = InkMetrics(coverage = 0.3f, strokeWidthPx = 6f, slant = 0f, inkCount = 300),
+            preferredFamily = null,
+            maxSizePx = 96f,
+            minSizePx = 11f,
+        )
+        assertEquals(FontFamilyKind.SANS, result.font.family)
     }
 
     @Test

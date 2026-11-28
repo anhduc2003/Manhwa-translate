@@ -34,7 +34,7 @@ object FontEstimator {
             else -> FontWeightLevel.BLACK
         }
         val italic = kotlin.math.abs(metrics.slant) > 0.15f
-        val family = preferredFamily ?: autoFamily(region)
+        val family = preferredFamily ?: autoFamily(region, weight)
         val size = (lineHeight * 0.78f).coerceIn(minSizePx, maxSizePx)
         return Result(
             font = FontSpec(family = family, weight = weight, italic = italic),
@@ -43,12 +43,17 @@ object FontEstimator {
         )
     }
 
-    private fun autoFamily(region: TextRegion): FontFamilyKind {
+    /**
+     * Most manhwa dialogue is set in capitals, so capitals alone do not mean a shout. Only a short
+     * line that is also heavy gets the display face; everything else stays in the dialogue family,
+     * which is the one with four real faces behind it.
+     */
+    private fun autoFamily(region: TextRegion, weight: FontWeightLevel): FontFamilyKind {
         val letters = region.text.filter { it.isLetter() }
         val allCaps = letters.isNotEmpty() && letters.all { it.isUpperCase() }
-        return when {
-            allCaps && letters.length <= 24 -> FontFamilyKind.CONDENSED
-            else -> FontFamilyKind.SANS
-        }
+        val shouted = allCaps &&
+            letters.length <= 12 &&
+            weight.androidWeight >= FontWeightLevel.BOLD.androidWeight
+        return if (shouted) FontFamilyKind.CONDENSED else FontFamilyKind.SANS
     }
 }

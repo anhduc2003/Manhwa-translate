@@ -84,6 +84,28 @@ class TranslationPipelineTest {
         )
     }
 
+    @Test
+    fun `the drawn size follows the size measured on the page`() {
+        val pipeline = pipeline()
+        val options = PipelineOptions(script = SourceScript.LATIN)
+        val loud = TextRegion(
+            id = 0,
+            box = box,
+            lines = listOf(TextLine(box, "HELLO")),
+            text = "HELLO",
+            originalTextSizePx = 46f,
+        )
+        val whispered = loud.copy(id = 1, originalTextSizePx = 13f)
+
+        val loudLayout = pipeline.layoutFor(loud, "XIN CHAO", options)
+        val whisperedLayout = pipeline.layoutFor(whispered, "XIN CHAO", options)
+
+        assertTrue(
+            loudLayout.textSizePx > whisperedLayout.textSizePx * 1.5f,
+            "a 46px original drew at ${loudLayout.textSizePx} and a 13px one at ${whisperedLayout.textSizePx}",
+        )
+    }
+
     private fun interiorSpread(image: ArgbImage): Float {
         val inner = box.expanded(-4)
         val values = ArrayList<Float>()

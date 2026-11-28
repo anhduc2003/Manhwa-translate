@@ -21,6 +21,11 @@ data class TextRegion(
     val script: SourceScript = SourceScript.AUTO,
     val confidence: Float? = null,
     val font: FontSpec = FontSpec.Default,
+    /**
+     * Size the original lettering was measured at, in pixels. The translation aims for this size
+     * instead of filling the bubble, so a whispered line stays small and a shout stays large.
+     */
+    val originalTextSizePx: Float = 0f,
 ) {
     val lineBoxes: List<RectI> get() = lines.map { it.box }
     val isBlank: Boolean get() = text.isBlank()

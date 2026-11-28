@@ -7,6 +7,7 @@ import android.os.Build
 import com.manhwatranslate.core.layout.FontFamilyKind
 import com.manhwatranslate.core.layout.FontSpec
 import com.manhwatranslate.core.layout.FontWeightLevel
+import com.manhwatranslate.core.layout.ManhwaFonts
 import com.manhwatranslate.core.layout.TextMeasurer
 
 class AndroidTextMeasurer(
@@ -66,11 +67,13 @@ class AndroidTextMeasurer(
     fun newPaint(sizePx: Float, font: FontSpec): Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
         textSize = sizePx
         typeface = typefaceFor(font)
+        letterSpacing = font.tracking
         isSubpixelText = true
     }
 
     private fun paint(sizePx: Float, font: FontSpec): Paint {
-        val key = (sizePx.toBits().toLong() shl 12) or
+        val key = (sizePx.toBits().toLong() shl 20) or
+            (font.tracking.toRawBits().toLong() shl 12) or
             (font.family.ordinal.toLong() shl 4) or
             (font.weight.ordinal.toLong() shl 1) or
             (if (font.italic) 1L else 0L)
