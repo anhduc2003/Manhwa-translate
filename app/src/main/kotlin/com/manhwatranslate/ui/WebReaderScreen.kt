@@ -49,14 +49,24 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LayersClear
-import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
@@ -108,12 +118,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.manhwatranslate.ui.components.AppTopBar
-import com.manhwatranslate.ui.components.GroupCard
 import com.manhwatranslate.ui.components.IconTile
-import com.manhwatranslate.ui.components.NavRow
-import com.manhwatranslate.ui.components.RowDivider
-import com.manhwatranslate.ui.components.SectionTitle
-import com.manhwatranslate.ui.components.ToggleRow
 import com.manhwatranslate.web.AdBlocker
 import com.manhwatranslate.web.PageImage
 import com.manhwatranslate.web.ReaderStyle
@@ -126,6 +131,14 @@ import kotlin.coroutines.resume
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.SwitchDefaults
+import java.text.NumberFormat
+import java.util.Locale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 
 /**
  * A reader for manhwa sites: an always-visible address bar in the top bar, the page underneath,
@@ -739,6 +752,20 @@ private fun AddressBar(
     }
 }
 
+// --- Bảng màu Dark Purple chuẩn Material 3 cho bảng cài đặt trình đọc ---
+private object ReaderSettingsPalette {
+    val Background = Color(0xFF0E0C14)
+    val CardSurface = Color(0xFF181523)
+    val CardBorder = Color(0xFF2C2540)
+    val Divider = Color(0x18FFFFFF)
+    val Primary = Color(0xFFA864FF)
+    val PrimaryContainer = Color(0x29A864FF)
+    val TextPrimary = Color(0xFFF3EFFA)
+    val TextSecondary = Color(0xFF9C94AD)
+    val Destructive = Color(0xFFFF6B81)
+    val DestructiveContainer = Color(0x22FF6B81)
+}
+
 @Composable
 private fun WebSettingsSheet(
     state: WebReaderUiState,
@@ -753,108 +780,459 @@ private fun WebSettingsSheet(
     onClearCookies: () -> Unit,
     onOpenExternal: () -> Unit,
 ) {
+    val palette = ReaderSettingsPalette
+    val filterSources = AdBlocker.SOURCES
+    val activeFilterCount = remember(state.blockerSources) {
+        filterSources.count { it.id in state.blockerSources }
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
+            .background(palette.Background)
+            .padding(horizontal = 16.dp)
             .padding(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconTile(icon = Icons.Outlined.Tune)
-            Spacer(Modifier.width(12.dp))
+        // Tiêu đề thay cho TopAppBar vì đây là ModalBottomSheet
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.PrimaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Tune,
+                    contentDescription = null,
+                    tint = palette.Primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             Text(
                 text = "Cài đặt trình đọc",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp,
+                ),
+                color = palette.TextPrimary,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onClose) {
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.06f)),
+            ) {
                 Icon(
-                    Icons.Outlined.Close,
+                    imageVector = Icons.Rounded.Close,
                     contentDescription = "Đóng",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = palette.TextPrimary,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
 
-        GroupCard {
-            ToggleRow(
-                title = "Chặn quảng cáo",
-                checked = state.adBlockEnabled,
-                onCheckedChange = { onToggleAds() },
-            )
-            RowDivider()
-            ToggleRow(
+        // 1. NHÓM HIỂN THỊ & TRẢI NGHIỆM
+        ReaderSettingsSectionHeader(title = "Hiển thị & Trải nghiệm")
+        ReaderSettingsGroupCard {
+            ReaderSettingsSwitchRow(
+                icon = Icons.Rounded.Translate,
                 title = "Tự động dịch",
                 subtitle = "Bắt đầu sau khi trang tải xong, dò thêm ảnh mới",
                 checked = state.autoTranslate,
                 onCheckedChange = onToggleAuto,
             )
-            RowDivider()
-            ToggleRow(
+            ReaderSettingsInsetDivider()
+            ReaderSettingsSwitchRow(
+                icon = Icons.Rounded.AutoStories,
                 title = "Chế độ đọc",
                 subtitle = "Ảnh vừa khung, nền và chữ theo ứng dụng",
                 checked = state.readerMode,
                 onCheckedChange = onToggleReader,
             )
-            RowDivider()
-            ToggleRow(
-                title = "Máy tính",
+            ReaderSettingsInsetDivider()
+            ReaderSettingsSwitchRow(
+                icon = Icons.Rounded.Computer,
+                title = "Giao diện máy tính",
                 subtitle = "Giả lập trình duyệt desktop",
                 checked = state.desktopMode,
                 onCheckedChange = onToggleDesktop,
             )
-            RowDivider()
-            ToggleRow(
+            ReaderSettingsInsetDivider()
+            ReaderSettingsSwitchRow(
+                icon = Icons.Rounded.WbSunny,
                 title = "Giữ màn hình sáng",
+                subtitle = "Không tự động tắt màn hình khi đang đọc",
                 checked = state.keepAwake,
                 onCheckedChange = onToggleKeepAwake,
             )
         }
 
-        SectionTitle("Nguồn bộ lọc", modifier = Modifier.padding(top = 4.dp))
-        GroupCard {
-            AdBlocker.SOURCES.forEachIndexed { index, source ->
-                if (index > 0) RowDivider()
-                ToggleRow(
-                    title = source.label,
-                    subtitle = if (state.blockerReady) {
-                        "${state.blockerCounts[source.id] ?: 0} tên miền"
-                    } else {
-                        source.hint
-                    },
-                    checked = source.id in state.blockerSources,
-                    onCheckedChange = { onToggleSource(source.id) },
+        // 2. NHÓM CHẶN QUẢNG CÁO & NGUỒN BỘ LỌC (gom logic & tự thu gọn)
+        ReaderSettingsSectionHeader(
+            title = "Chặn quảng cáo & Bộ lọc",
+            badgeText = if (state.adBlockEnabled) {
+                "$activeFilterCount/${filterSources.size} đang bật"
+            } else {
+                "Đang tắt"
+            },
+            badgeActive = state.adBlockEnabled,
+        )
+        ReaderSettingsGroupCard {
+            ReaderSettingsSwitchRow(
+                icon = Icons.Rounded.Shield,
+                title = "Chặn quảng cáo",
+                subtitle = "Lọc tên miền quảng cáo và trình theo dõi",
+                checked = state.adBlockEnabled,
+                onCheckedChange = { onToggleAds() },
+            )
+
+            AnimatedVisibility(
+                visible = state.adBlockEnabled,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.16f)),
+                ) {
+                    HorizontalDivider(color = palette.Divider, thickness = 1.dp)
+                    filterSources.forEachIndexed { index, source ->
+                        ReaderFilterSourceRow(
+                            name = source.label,
+                            domainCount = if (state.blockerReady) {
+                                state.blockerCounts[source.id] ?: 0
+                            } else {
+                                null
+                            },
+                            hint = source.hint,
+                            checked = source.id in state.blockerSources,
+                            onCheckedChange = { checked -> onToggleSource(source.id) },
+                        )
+                        if (index < filterSources.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 20.dp, end = 16.dp),
+                                color = palette.Divider,
+                                thickness = 0.8.dp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. NHÓM TÁC VỤ TRANG & DỮ LIỆU
+        ReaderSettingsSectionHeader(title = "Tác vụ & Dữ liệu trang")
+        ReaderSettingsGroupCard {
+            ReaderSettingsActionRow(
+                icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                title = "Mở bằng trình duyệt ngoài",
+                subtitle = "Chuyển trang hiện tại sang Chrome hoặc trình duyệt mặc định",
+                isDestructive = false,
+                onClick = onOpenExternal,
+            )
+            ReaderSettingsInsetDivider()
+            ReaderSettingsActionRow(
+                icon = Icons.Rounded.DeleteSweep,
+                title = "Xoá bản dịch trên trang",
+                subtitle = "Khôi phục lại nội dung ngôn ngữ gốc",
+                isDestructive = true,
+                onClick = onClearTranslations,
+            )
+            ReaderSettingsInsetDivider()
+            ReaderSettingsActionRow(
+                icon = Icons.Rounded.CleaningServices,
+                title = "Xoá cookie của trang",
+                subtitle = "Đăng xuất và làm mới dữ liệu lưu trữ cục bộ",
+                isDestructive = true,
+                onClick = onClearCookies,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReaderSettingsSectionHeader(
+    title: String,
+    badgeText: String? = null,
+    badgeActive: Boolean = false,
+) {
+    val palette = ReaderSettingsPalette
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+            ),
+            color = palette.TextSecondary,
+        )
+        if (badgeText != null) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (badgeActive) palette.PrimaryContainer else Color.White.copy(alpha = 0.06f),
+            ) {
+                Text(
+                    text = badgeText,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                    color = if (badgeActive) palette.Primary else palette.TextSecondary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderSettingsGroupCard(
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val palette = ReaderSettingsPalette
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = palette.CardSurface,
+        border = BorderStroke(1.dp, palette.CardBorder),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun ReaderSettingsSwitchRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val palette = ReaderSettingsPalette
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(
+                    if (checked) palette.PrimaryContainer
+                    else Color.White.copy(alpha = 0.05f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (checked) palette.Primary else palette.TextSecondary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                ),
+                color = palette.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 16.sp),
+                    color = palette.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
 
-        SectionTitle("Dữ liệu", modifier = Modifier.padding(top = 4.dp))
-        GroupCard {
-            NavRow(
-                icon = Icons.Outlined.LayersClear,
-                title = "Xoá bản dịch trên trang",
-                showChevron = false,
-                onClick = onClearTranslations,
+        Spacer(modifier = Modifier.width(12.dp))
+
+        ReaderSettingsSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
+private fun ReaderFilterSourceRow(
+    name: String,
+    domainCount: Int?,
+    hint: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val palette = ReaderSettingsPalette
+    val formattedCount = remember(domainCount) {
+        domainCount?.let {
+            NumberFormat.getNumberInstance(Locale("vi", "VN")).format(it)
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Chấm chỉ báo trạng thái bộ lọc
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(
+                    if (checked) palette.Primary
+                    else palette.TextSecondary.copy(alpha = 0.35f),
+                ),
+        )
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                ),
+                color = palette.TextPrimary,
             )
-            RowDivider()
-            NavRow(
-                icon = Icons.Outlined.CleaningServices,
-                title = "Xoá cookie của trang",
-                showChevron = false,
-                onClick = onClearCookies,
-            )
-            RowDivider()
-            NavRow(
-                icon = Icons.Outlined.OpenInNew,
-                title = "Mở bằng trình duyệt ngoài",
-                showChevron = false,
-                onClick = onOpenExternal,
+            Text(
+                text = if (formattedCount != null) "$formattedCount tên miền" else hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.TextSecondary,
             )
         }
-        Spacer(Modifier.height(4.dp))
+
+        ReaderSettingsSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
+}
+
+@Composable
+private fun ReaderSettingsActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    isDestructive: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = ReaderSettingsPalette
+    val accentColor = if (isDestructive) palette.Destructive else palette.Primary
+    val containerColor = if (isDestructive) palette.DestructiveContainer else palette.PrimaryContainer
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(containerColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                ),
+                color = if (isDestructive) palette.Destructive else palette.TextPrimary,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 16.sp),
+                    color = palette.TextSecondary,
+                )
+            }
+        }
+
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            tint = palette.TextSecondary.copy(alpha = 0.6f),
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun ReaderSettingsSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = Color.White,
+            checkedTrackColor = ReaderSettingsPalette.Primary,
+            uncheckedThumbColor = Color(0xFF9C94AD),
+            uncheckedTrackColor = Color(0xFF252036),
+            uncheckedBorderColor = Color(0xFF473E63),
+        ),
+    )
+}
+
+@Composable
+private fun ReaderSettingsInsetDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 68.dp, end = 16.dp),
+        color = ReaderSettingsPalette.Divider,
+        thickness = 0.8.dp,
+    )
 }
 
 @Composable
