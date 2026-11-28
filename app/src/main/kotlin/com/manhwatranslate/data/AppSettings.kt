@@ -39,6 +39,8 @@ data class AppSettings(
     val boxExpansion: Float = 1.15f,
     val maxPagePixels: Int = 24_000_000,
     val ocrProvider: OcrProviderType = OcrProviderType.ML_KIT,
+    /** Lets the trained detector look for lettering the OCR engine skipped; see [PipelineOptions]. */
+    val detectMissedText: Boolean = false,
     val webBlockAds: Boolean = true,
     val webBlockerSources: Set<String> = setOf("builtin", "easylist", "easyprivacy", "peterlowe"),
     val webAutoTranslate: Boolean = true,
@@ -79,5 +81,6 @@ data class AppSettings(
         boxExpansion = boxExpansion,
         sfxSensitivity = sfxSensitivity,
         matchBackgroundColor = matchBackgroundColor,
+        detectMissedText = detectMissedText,
     )
 }

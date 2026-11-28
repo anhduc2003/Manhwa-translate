@@ -1561,6 +1561,23 @@ private fun OcrPickerSheet(
                 Text("Kiểm tra server", fontWeight = FontWeight.SemiBold)
             }
         }
+
+        Spacer(Modifier.height(4.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.cardBg)
+                .border(1.dp, palette.cardBorder, RoundedCornerShape(16.dp)),
+        ) {
+            SheetToggleRow(
+                palette = palette,
+                title = "Dò thêm chữ bị bỏ sót",
+                subtitle = "Mô hình riêng của app tìm chữ nhỏ và chữ cách điệu OCR hay bỏ qua",
+                checked = settings.detectMissedText,
+                onCheckedChange = { value -> onUpdate { it.copy(detectMissedText = value) } },
+            )
+        }
     }
 }
 

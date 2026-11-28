@@ -145,6 +145,7 @@ dependencies {
     implementation(libs.mlkit.translate)
 
     implementation(libs.llama)
+    implementation(libs.onnxruntime.android)
 
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
