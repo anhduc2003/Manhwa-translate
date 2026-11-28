@@ -30,8 +30,8 @@ android {
         applicationId = "com.manhwatranslate"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.2.1"
+        versionCode = 8
+        versionName = "1.2.2"
         vectorDrawables {
             useSupportLibrary = true
         }

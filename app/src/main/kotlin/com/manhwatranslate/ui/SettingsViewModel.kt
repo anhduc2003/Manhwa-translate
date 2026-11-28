@@ -10,6 +10,8 @@ import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.di.AppContainer
 import com.manhwatranslate.translate.DownloadProgress
 import com.manhwatranslate.translate.FreeProviders
+import com.manhwatranslate.translate.ModelDownloadState
+import com.manhwatranslate.translate.ModelDownloader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +25,8 @@ data class SettingsUiState(
     val downloadProgress: DownloadProgress = DownloadProgress(),
     /** Bytes of the model URL already on disk from an earlier, interrupted attempt. */
     val partialModelBytes: Long = 0L,
+    /** Why the saved link cannot be downloaded, or null when it looks like a .gguf file. */
+    val modelUrlProblem: String? = null,
 )
 
 class SettingsViewModel(
@@ -36,12 +40,55 @@ class SettingsViewModel(
     init {
         viewModelScope.launch {
             container.settingsRepository.settings.collect { settings ->
+                val urlProblem = settings.localLlmModelUrl
+                    .takeIf { it.isNotBlank() }
+                    ?.let(ModelDownloader::urlProblem)
                 _state.value = _state.value.copy(
                     settings = settings,
                     configuredKeys = readKeys(),
-                    partialModelBytes = container.modelDownloader.partialBytes(settings.localLlmModelUrl),
+                    // A part file for a link that is not a model is not something to resume, so
+                    // the card never offers it as one.
+                    partialModelBytes = if (urlProblem == null) {
+                        container.modelDownloader.partialBytes(settings.localLlmModelUrl)
+                    } else {
+                        0L
+                    },
+                    modelUrlProblem = urlProblem,
                 )
             }
+        }
+        viewModelScope.launch {
+            container.modelDownloadManager.state.collect { download -> applyDownloadState(download) }
+        }
+    }
+
+    /**
+     * Mirrors the app-wide download into this screen's state, so the card shows the transfer
+     * that is really happening even when the user left the screen and came back.
+     */
+    private fun applyDownloadState(download: ModelDownloadState) {
+        _state.value = _state.value.copy(
+            downloadingModel = download is ModelDownloadState.Running,
+            downloadProgress = (download as? ModelDownloadState.Running)?.progress ?: DownloadProgress(),
+        )
+        when (download) {
+            is ModelDownloadState.Finished -> {
+                _state.value = _state.value.copy(
+                    partialModelBytes = 0L,
+                    message = "Đã tải mô hình: ${download.model.name} (${formatMegabytes(download.model.bytes)})",
+                )
+                container.modelDownloadManager.consume()
+            }
+            is ModelDownloadState.Failed -> {
+                // The part file left behind is what the next attempt resumes from, so the card
+                // has to see how much of it there is.
+                _state.value = _state.value.copy(
+                    partialModelBytes = container.modelDownloader.partialBytes(download.url),
+                    message = download.message,
+                )
+                container.modelDownloadManager.consume()
+            }
+            else -> Unit
         }
     }
 
@@ -172,6 +219,9 @@ class SettingsViewModel(
                     if (cursor.moveToFirst()) cursor.getString(0) else null
                 } ?: "model.gguf"
                 val safeName = name.substringAfterLast('/').ifBlank { "model.gguf" }
+                if (!safeName.endsWith(".gguf", ignoreCase = true)) {
+                    error("Tệp này không phải mô hình .gguf")
+                }
                 val file = java.io.File(getApplication<Application>().filesDir, "models/$safeName")
                 file.parentFile?.mkdirs()
                 resolver.openInputStream(uri)?.use { input ->
@@ -192,44 +242,11 @@ class SettingsViewModel(
     }
 
     /**
-     * Downloads a .gguf model straight from [SettingsUiState.settings]'s URL and remembers it as
-     * the active offline model. Progress is published on the main state flow so the settings
-     * screen can show the bar; an error is surfaced as a message instead of crashing a page.
+     * Hands [url] to the app-wide [ModelDownloadManager], which downloads it, remembers the
+     * result as the active offline model, and keeps reporting progress after this screen is gone.
      */
-    fun downloadLlmModel() {
-        val url = _state.value.settings.localLlmModelUrl.trim()
-        if (url.isBlank()) {
-            _state.value = _state.value.copy(message = "Nhập URL của mô hình .gguf trước")
-            return
-        }
-        if (_state.value.downloadingModel) return
-        container.appScope.launch {
-            _state.value = _state.value.copy(downloadingModel = true, downloadProgress = DownloadProgress())
-            runCatching {
-                container.modelDownloader.download(url) { progress ->
-                    _state.value = _state.value.copy(downloadProgress = progress)
-                }
-            }.onSuccess { model ->
-                container.settingsRepository.update {
-                    it.copy(
-                        localLlmModelPath = model.path,
-                        localLlmModelName = model.name,
-                    )
-                }
-                _state.value = _state.value.copy(
-                    downloadingModel = false,
-                    partialModelBytes = 0L,
-                    message = "Đã tải mô hình: ${model.name} (${formatMegabytes(model.bytes)})",
-                )
-            }.onFailure { error ->
-                _state.value = _state.value.copy(
-                    downloadingModel = false,
-                    partialModelBytes = container.modelDownloader
-                        .partialBytes(_state.value.settings.localLlmModelUrl),
-                    message = error.message ?: "Tải mô hình thất bại",
-                )
-            }
-        }
+    fun downloadLlmModel(url: String = _state.value.settings.localLlmModelUrl) {
+        container.modelDownloadManager.start(url)
     }
 
     private fun formatMegabytes(bytes: Long): String =

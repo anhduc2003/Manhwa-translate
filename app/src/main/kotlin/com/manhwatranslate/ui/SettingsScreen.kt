@@ -238,8 +238,9 @@ fun SettingsScreen(
         onPickLlmModel = onPickLlmModel,
         downloadingModel = state.downloadingModel,
         partialModelBytes = state.partialModelBytes,
+        modelUrlProblem = state.modelUrlProblem,
         downloadProgress = state.downloadProgress,
-        onDownloadLlmModel = { viewModel.downloadLlmModel() },
+        onDownloadLlmModel = { url -> viewModel.downloadLlmModel(url) },
         onClearFont = { viewModel.clearFont() },
         onBack = onBack,
     )
@@ -261,8 +262,9 @@ internal fun SettingsContent(
     onPickLlmModel: () -> Unit,
     downloadingModel: Boolean,
     partialModelBytes: Long,
+    modelUrlProblem: String?,
     downloadProgress: DownloadProgress,
-    onDownloadLlmModel: () -> Unit,
+    onDownloadLlmModel: (String) -> Unit,
     onClearFont: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -324,12 +326,13 @@ internal fun SettingsContent(
                         hasApiKey = settings.provider in configuredKeys,
                         downloadingModel = downloadingModel,
                         partialModelBytes = partialModelBytes,
+                        modelUrlProblem = modelUrlProblem,
                         downloadProgress = downloadProgress,
                         onDownloadLlm = {
                             if (settings.localLlmModelUrl.isBlank()) {
                                 activeSheet = SettingsSheet.LLM_URL
                             } else {
-                                onDownloadLlmModel()
+                                onDownloadLlmModel(settings.localLlmModelUrl)
                             }
                         },
                         onEditLlmUrl = { activeSheet = SettingsSheet.LLM_URL },
@@ -495,7 +498,7 @@ internal fun SettingsContent(
                     onSaveAndDownload = { url ->
                         onUpdate { it.copy(localLlmModelUrl = url) }
                         activeSheet = null
-                        onDownloadLlmModel()
+                        onDownloadLlmModel(url)
                     },
                     onClose = { activeSheet = null },
                 )
@@ -719,6 +722,7 @@ private fun ActiveProviderHeroCard(
     hasApiKey: Boolean,
     downloadingModel: Boolean,
     partialModelBytes: Long,
+    modelUrlProblem: String?,
     downloadProgress: DownloadProgress,
     onDownloadLlm: () -> Unit,
     onEditLlmUrl: () -> Unit,
@@ -760,15 +764,18 @@ private fun ActiveProviderHeroCard(
                         downloadingModel && downloadProgress.total > 0 ->
                             "${formatMegabytes(downloadProgress.bytes)} / ${formatMegabytes(downloadProgress.total)}"
                         downloadingModel -> formatMegabytes(downloadProgress.bytes)
-                        partialModelBytes > 0 -> formatMegabytes(partialModelBytes)
+                        partialModelBytes > 0 -> "dở ${formatMegabytes(partialModelBytes)}"
                         settings.localLlmModelPath.isNotBlank() -> "Sẵn sàng"
-                        else -> "Offline"
+                        else -> "Chưa có"
                     }
+                    // Only a running transfer or a finished model has a real fraction behind it;
+                    // a half-downloaded file alone does not, so the bar stays at zero for it
+                    // instead of showing a made-up number.
                     val barProgress = when {
-                        downloadingModel -> downloadProgress.fraction.coerceIn(0.05f, 1f)
-                        partialModelBytes > 0 -> 0.55f
-                        settings.localLlmModelPath.isNotBlank() -> 1f
-                        else -> 0.0f
+                        downloadingModel && downloadProgress.total > 0 ->
+                            downloadProgress.fraction.coerceIn(0f, 1f)
+                        settings.localLlmModelPath.isNotBlank() && !downloadingModel -> 1f
+                        else -> 0f
                     }
 
                     HeroCardHeader(
@@ -806,6 +813,16 @@ private fun ActiveProviderHeroCard(
                         )
                     }
 
+                    if (modelUrlProblem != null && !downloadingModel) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = modelUrlProblem,
+                            color = Color(0xFFFCA5A5),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                        )
+                    }
+
                     Spacer(Modifier.height(10.dp))
 
                     LinearProgressIndicator(
@@ -831,6 +848,7 @@ private fun ActiveProviderHeroCard(
                                 downloadingModel -> "Đang tải…"
                                 partialModelBytes > 0 -> "Tải tiếp"
                                 settings.localLlmModelUrl.isBlank() -> "Nhập link tải"
+                                modelUrlProblem != null -> "Link chưa đúng"
                                 else -> "Tải mô hình"
                             },
                             enabled = !downloadingModel,
