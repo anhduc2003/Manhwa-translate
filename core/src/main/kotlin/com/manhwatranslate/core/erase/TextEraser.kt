@@ -190,14 +190,16 @@ class TextEraser(
         val height = mask.height
         val pageWidth = target.width
         val pixels = target.pixels
-        val quietPaper = mask.backgroundContrast < 6f
         var painted = 0
         repeat(2) { pass ->
             var changed = 0
             for (y in 0 until height) {
                 for (x in 0 until width) {
                     if (mask.data[y * width + x].toInt() != 0) continue
-                    if (!quietPaper && !nearMask(mask, x, y, width, height)) continue
+                    // Only the rim just outside the letters is swept. Anything further out is
+                    // artwork the mask deliberately left standing, and painting it with the
+                    // paper colour is the patch that covered the panel behind the bubble.
+                    if (!nearMask(mask, x, y, width, height)) continue
                     val pageIndex = (mask.top + y) * pageWidth + mask.left + x
                     val pixel = pixels[pageIndex]
                     val paper = surface.argbAt(x, y)
