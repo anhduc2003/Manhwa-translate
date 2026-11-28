@@ -39,7 +39,7 @@ class OnnxBackgroundFiller(context: Context) : BackgroundFiller, Closeable {
         val paddedWidth = width + (-width).mod(PADDING)
         val paddedHeight = height + (-height).mod(PADDING)
         val plane = paddedWidth * paddedHeight
-        val input = FloatArray(4 * plane)
+        val input = FloatArray(INPUT_CHANNELS * plane)
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val marked = x >= mask.left && y >= mask.top && x < mask.right && y < mask.bottom &&
@@ -54,7 +54,14 @@ class OnnxBackgroundFiller(context: Context) : BackgroundFiller, Closeable {
                 input[3 * plane + index] = if (marked) 1f else 0f
             }
         }
-        val shape = longArrayOf(1, 4, paddedHeight.toLong(), paddedWidth.toLong())
+        // Three constant planes carry the paper colour, so the network never has to guess which
+        // colour the hole should be; they match what the trainer fed it.
+        val paper = mask.backgroundArgb
+        java.util.Arrays.fill(input, 4 * plane, 5 * plane, ((paper shr 16) and 0xFF) / 255f)
+        java.util.Arrays.fill(input, 5 * plane, 6 * plane, ((paper shr 8) and 0xFF) / 255f)
+        java.util.Arrays.fill(input, 6 * plane, 7 * plane, (paper and 0xFF) / 255f)
+
+        val shape = longArrayOf(1, INPUT_CHANNELS.toLong(), paddedHeight.toLong(), paddedWidth.toLong())
         val output = OnnxTensor.createTensor(environment, FloatBuffer.wrap(input), shape).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
                 val values = (result[0] as? OnnxTensor) ?: return null
@@ -95,5 +102,8 @@ class OnnxBackgroundFiller(context: Context) : BackgroundFiller, Closeable {
 
         /** The graph pools twice, so both sides have to divide by four. */
         const val PADDING = 4
+
+        /** RGB with the hole zeroed, the mask, then the paper colour on three planes. */
+        const val INPUT_CHANNELS = 7
     }
 }
