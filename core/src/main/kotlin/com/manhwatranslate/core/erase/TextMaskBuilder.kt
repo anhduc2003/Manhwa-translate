@@ -31,6 +31,13 @@ class TextMaskBuilder(
         val dilation: Int = 4,
         val minCoverage: Float = 0.003f,
         val fitSurface: Boolean = true,
+        /**
+         * How far past the detected box a stroke may reach and still be erased, as a share of the
+         * box height. Lettering is often drawn wider than the box OCR reported, and a stray Y or P
+         * left standing next to the translation is more obvious than the whole original sentence.
+         */
+        val eraseMarginFactor: Float = 0.18f,
+        val eraseMarginMaxPx: Int = 36,
     )
 
     fun build(
@@ -38,13 +45,18 @@ class TextMaskBuilder(
         region: TextRegion,
         options: Options = this.options,
     ): TextMask? {
-        val bounds = region.box.expanded(options.padding).clamped(image.width, image.height) ?: return null
+        val core = region.box.expanded(options.padding).clamped(image.width, image.height) ?: return null
+        val margin = (region.box.height * options.eraseMarginFactor).toInt()
+            .coerceIn(0, options.eraseMarginMaxPx)
+        val bounds = core.expanded(margin).clamped(image.width, image.height) ?: core
         val context = region.box.expanded(options.contextPadding).clamped(image.width, image.height) ?: bounds
         val crop = image.crop(bounds)
         val width = crop.width
         val height = crop.height
         val pixels = crop.pixels
 
+        // The mask is built inside the detected box; the margin around it is only used to reclaim
+        // strokes that stick out of the box, below.
         val roi = buildRoi(region, bounds, width, height)
         val paper = dominantRingColor(image, context)
         val ink = estimateInkColor(pixels, roi, paper, options.globalTolerance)
@@ -122,6 +134,10 @@ class TextMaskBuilder(
             }
         }
 
+        if (margin > 0 && marked > 0) {
+            growIntoMargin(mask, pixels, width, height, bounds, ink, paper, options.globalTolerance)
+        }
+
         val metrics = InkAnalyzer.analyze(mask, width, height)
         Morphology.close(mask, width, height, options.closingRadius)
         Morphology.dilate(mask, width, height, options.dilation)
@@ -139,6 +155,54 @@ class TextMaskBuilder(
             surface = surface,
             metrics = metrics,
         )
+    }
+
+    /**
+     * Reclaims lettering drawn outside the detected box: starting from the pixels the mask already
+     * found, walk outwards through the margin while the pixels still look like the letter colour.
+     * Artwork in that margin is a different colour from the lettering, so it is left alone.
+     */
+    private fun growIntoMargin(
+        mask: ByteArray,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        bounds: RectI,
+        ink: Int,
+        paper: Int,
+        tolerance: Float,
+    ) {
+        val queued = BooleanArray(width * height)
+        val queue = IntArray(width * height)
+        var head = 0
+        var tail = 0
+        for (index in mask.indices) {
+            if (mask[index].toInt() != 0) {
+                queue[tail++] = index
+            }
+        }
+        while (head < tail) {
+            val index = queue[head++]
+            val x = index % width
+            val y = index / width
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = x + dx
+                    val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+                    val neighbour = ny * width + nx
+                    if (queued[neighbour] || mask[neighbour].toInt() != 0) continue
+                    val pixel = pixels[neighbour]
+                    // Only the letter colour continues into the margin: artwork there is a
+                    // different colour, and antialiased edges of the same letter sit close to it.
+                    if (Colors.distance(pixel, ink) > tolerance * 1.5f) continue
+                    mask[neighbour] = 1
+                    queued[neighbour] = true
+                    if (tail < queue.size) queue[tail++] = neighbour
+                }
+            }
+        }
     }
 
     private fun roiHasArea(roi: ByteArray): Boolean {

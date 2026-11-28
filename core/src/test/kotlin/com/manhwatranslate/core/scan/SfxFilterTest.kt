@@ -59,6 +59,33 @@ class SfxFilterTest {
     }
 
     @Test
+    fun `a two word line on artwork is dialogue, not a sound effect`() {
+        // High contrast artwork: the rule for a sound effect is a busy surround, and real splash
+        // pages are exactly this busy around a shout balloon.
+        val image = ArgbImage(1000, 600, IntArray(1000 * 600) { index ->
+            val x = index % 1000
+            val y = index / 1000
+            if ((x / 6 + y / 6) % 2 == 0) Colors.opaque(10, 10, 10) else Colors.opaque(250, 250, 250)
+        })
+        // The letters sit on busy artwork, which is how a spiky shout balloon reads from outside
+        // the box; two words with a sentence shape are still dialogue.
+        val box = RectI(280, 200, 720, 340)
+        val region = TextRegion(
+            id = 4,
+            box = box,
+            lines = listOf(
+                TextLine(RectI(box.left, 200, box.right, 268), "THEN"),
+                TextLine(RectI(box.left, 272, box.right, 340), "FASTER..."),
+            ),
+            text = "THEN FASTER...",
+        )
+
+        val analysis = SfxFilter.analyze(image, region, image.width, SfxSensitivity.MEDIUM)
+
+        assertFalse(analysis.isSoundEffect, "score ${analysis.score} ${analysis.reasons}")
+    }
+
+    @Test
     fun `turning the filter off never skips anything`() {
         val (image, region) = artworkPage()
         val analysis = SfxFilter.analyze(image, region, image.width, SfxSensitivity.OFF)

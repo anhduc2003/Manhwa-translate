@@ -36,6 +36,12 @@ class CanvasPageCompositor(private val measurer: AndroidTextMeasurer) : PageComp
         if (layout.lines.isEmpty()) return
 
         val palette = paletteFor(page, layout, style)
+        val turned = item.rotationDegrees
+        if (turned != 0f) {
+            // Lettering drawn along a slant is translated along the same line, not levelled out.
+            canvas.save()
+            canvas.rotate(turned, layout.box.centerX.toFloat(), layout.box.centerY.toFloat())
+        }
         paint.reset()
         paint.isAntiAlias = true
         paint.isSubpixelText = true
@@ -90,6 +96,7 @@ class CanvasPageCompositor(private val measurer: AndroidTextMeasurer) : PageComp
             canvas.drawText(line, left, baseline, paint)
         }
         if (fitScale < 0.999f) canvas.restore()
+        if (turned != 0f) canvas.restore()
     }
 
     private data class Palette(val text: Int, val stroke: Int, val shadow: Int)

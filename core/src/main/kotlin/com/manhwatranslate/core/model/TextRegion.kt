@@ -26,6 +26,12 @@ data class TextRegion(
      * instead of filling the bubble, so a whispered line stays small and a shout stays large.
      */
     val originalTextSizePx: Float = 0f,
+    /**
+     * How far the lettering is turned on the page, in degrees clockwise. Lettering drawn at an
+     * angle is invisible to an OCR pass that expects a level line, so the page is read again at a
+     * few angles and the ones that come back carry the angle they were found at.
+     */
+    val rotationDegrees: Float = 0f,
 ) {
     val lineBoxes: List<RectI> get() = lines.map { it.box }
     val isBlank: Boolean get() = text.isBlank()

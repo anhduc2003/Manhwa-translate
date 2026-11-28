@@ -28,6 +28,8 @@ data class RenderStyle(
 data class RenderItem(
     val layout: TextLayout,
     val style: RenderStyle,
+    /** Turning of the original lettering, so the translation is drawn along the same line. */
+    val rotationDegrees: Float = 0f,
 )
 
 /**
