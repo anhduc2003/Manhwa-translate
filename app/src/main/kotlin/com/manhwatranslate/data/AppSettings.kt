@@ -41,6 +41,7 @@ data class AppSettings(
     val ocrProvider: OcrProviderType = OcrProviderType.ML_KIT,
     val webBlockAds: Boolean = true,
     val webBlockerSources: Set<String> = setOf("builtin", "easylist", "easyprivacy", "peterlowe"),
+    val webAutoTranslate: Boolean = true,
     val webReaderMode: Boolean = true,
     val webDesktopMode: Boolean = false,
     val webKeepAwake: Boolean = true,

@@ -160,19 +160,23 @@ class WebImageBridge(
         if (millis < 1_000L) "${millis}ms" else
             String.format(java.util.Locale.US, "%.1fs", millis / 1000f)
 
-    /** Queues every image for translation; progress arrives through [onProgress]. */
+    /**
+     * Queues every image for translation; progress arrives through [onProgress]. A scan that runs
+     * while the chapter is still being translated only adds to the batch: the clock, the warnings
+     * and the per-page notes belong to the whole chapter, not to the newest scan.
+     */
     fun translate(images: List<PageImage>) {
         if (images.isEmpty()) return
         if (completed.get() >= pending.get()) {
             pending.set(0)
             completed.set(0)
+            startedAt.set(System.currentTimeMillis())
+            detectNanos.set(0)
+            translateNanos.set(0)
+            warnings.clear()
+            reports.clear()
+            refineFailureShown.set(false)
         }
-        startedAt.set(System.currentTimeMillis())
-        detectNanos.set(0)
-        translateNanos.set(0)
-        warnings.clear()
-        reports.clear()
-        refineFailureShown.set(false)
         pending.addAndGet(images.size)
         onProgress(completed.get(), pending.get())
         images.forEach(::queue)
@@ -308,10 +312,19 @@ class WebImageBridge(
      * Reads and draws the page with the on-device model first, so a page becomes readable in a
      * second or two instead of waiting a cloud round trip; a configured cloud backend then
      * replaces it with the better translation.
+     *
+     * The keyless sources answer a whole page in one round trip, so they are faster than that
+     * two-pass dance — and passing through them once means each strip is drawn once instead of
+     * flipping to the on-device text and flipping again a moment later.
      */
-    private fun AppSettings.onDeviceFirst(): AppSettings =
-        if (provider == TranslationProviderType.ON_DEVICE) this
-        else copy(provider = TranslationProviderType.ON_DEVICE)
+    private fun AppSettings.onDeviceFirst(): AppSettings = when (provider) {
+        TranslationProviderType.ON_DEVICE,
+        TranslationProviderType.FREE_AUTO,
+        TranslationProviderType.GOOGLE_FREE,
+        TranslationProviderType.LIBRE_TRANSLATE,
+        -> this
+        else -> copy(provider = TranslationProviderType.ON_DEVICE)
+    }
 
     /** Notes what happened to an image, so a page that comes back untranslated says why. */
     private fun describe(image: PageImage, result: PageProcessingResult) {

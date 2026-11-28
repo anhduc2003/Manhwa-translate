@@ -88,6 +88,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -115,7 +116,11 @@ import com.manhwatranslate.web.AdBlocker
 import com.manhwatranslate.web.PageImage
 import com.manhwatranslate.web.ReaderStyle
 import com.manhwatranslate.web.WebImageBridge
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayInputStream
+import kotlin.coroutines.resume
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -141,6 +146,9 @@ fun WebReaderScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var addressBar by rememberSaveable { mutableStateOf("") }
     var pageLoaded by remember { mutableStateOf(false) }
+    var pageLoadTick by remember { mutableIntStateOf(0) }
+    // A manual clear stops the automatic pass for this page; the next load or press starts it again.
+    var autoPaused by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -224,6 +232,7 @@ fun WebReaderScreen(
     }
 
     fun translatePage() {
+        autoPaused = false
         val view = webView
         if (view == null) {
             viewModel.showMessage("Chưa có trang nào để dịch")
@@ -242,6 +251,40 @@ fun WebReaderScreen(
                     }
                 }, 300)
             }
+        }
+    }
+
+    /**
+     * Automatic translation. A chapter page loads its strips lazily, so one scan finds a handful
+     * of them and the rest arrive as the reader scrolls; the loop keeps asking for new images and
+     * queues whatever appeared, which is what turns the page over strip by strip instead of
+     * leaving most of the chapter in the original language.
+     */
+    LaunchedEffect(state.clearSignal) {
+        if (state.clearSignal > 0) autoPaused = true
+    }
+    LaunchedEffect(pageLoadTick) {
+        if (pageLoadTick > 0) autoPaused = false
+    }
+    LaunchedEffect(pageLoadTick, state.autoTranslate, autoPaused) {
+        if (pageLoadTick == 0 || autoPaused || !state.autoTranslate) return@LaunchedEffect
+        val view = webView ?: return@LaunchedEffect
+        // Let the page settle: the first strips and the site's own scripts land just after
+        // onPageFinished, and scanning before that finds the wrong images.
+        delay(AUTO_START_PAUSE_MS)
+        injectReaderScripts(view, view.url.orEmpty(), viewModel, blocker, darkPage)
+        var quietRounds = 0
+        while (isActive) {
+            val found = scanImages(view)
+            if (found.isEmpty()) {
+                quietRounds++
+            } else {
+                quietRounds = 0
+                viewModel.translatePageImages(found, view.url.orEmpty())
+            }
+            // A settled page is checked less often, but never stops: the next strip the reader
+            // scrolls to still needs translating.
+            delay(if (quietRounds > QUIET_SCANS_BEFORE_SLOWING) SLOW_RESCAN_MS else RESCAN_MS)
         }
     }
 
@@ -460,6 +503,7 @@ fun WebReaderScreen(
                                 viewModel.onLoadFinished()
                                 viewModel.onPageUrl(url.orEmpty())
                                 injectReaderScripts(view, url.orEmpty(), viewModel, blocker, darkPage)
+                                pageLoadTick += 1
                             }
 
                             override fun shouldOverrideUrlLoading(
@@ -509,6 +553,7 @@ fun WebReaderScreen(
                 onClose = { settingsOpen = false },
                 onToggleAds = { viewModel.toggleAdBlock() },
                 onToggleSource = { viewModel.toggleBlockerSource(it) },
+                onToggleAuto = { viewModel.setAutoTranslate(it) },
                 onToggleReader = { viewModel.setReaderMode(it) },
                 onToggleDesktop = { viewModel.setDesktopMode(it) },
                 onToggleKeepAwake = { viewModel.setKeepAwake(it) },
@@ -549,11 +594,30 @@ private fun subtitle(state: WebReaderUiState): String = when {
 
 private fun hint(state: WebReaderUiState, pageLoaded: Boolean): String = when {
     state.translating -> "Giữ màn hình mở trong lúc dịch"
+    state.totalImages > 0 && state.autoTranslate ->
+        "Đã dịch ${state.totalImages} ảnh · tự dò thêm khi cuộn"
     state.totalImages > 0 && state.timing.isNotBlank() ->
         "Đã dịch xong · ${state.timing}"
     state.totalImages > 0 -> "Đã dịch xong · vuốt để đọc"
+    pageLoaded && state.autoTranslate -> "Sắp tự dịch ảnh trong trang"
     pageLoaded -> "Dịch mọi ảnh trong trang"
     else -> "Dán link rồi bấm Mở"
+}
+
+/**
+ * How long the reader waits after a page reports itself loaded before it starts translating, and
+ * how often it looks for strips that appeared afterwards.
+ */
+private const val AUTO_START_PAUSE_MS = 1_500L
+private const val RESCAN_MS = 2_000L
+private const val QUIET_SCANS_BEFORE_SLOWING = 10
+private const val SLOW_RESCAN_MS = 6_000L
+
+/** Asks the page for the strips it has not handed over yet. */
+private suspend fun scanImages(view: WebView): List<PageImage> = suspendCancellableCoroutine { continuation ->
+    view.evaluateJavascript("window.__mtScan ? window.__mtScan() : '[]'") { raw ->
+        continuation.resume(parseScannedImages(raw))
+    }
 }
 
 private fun parseScannedImages(raw: String?): List<PageImage> {
@@ -681,6 +745,7 @@ private fun WebSettingsSheet(
     onClose: () -> Unit,
     onToggleAds: () -> Unit,
     onToggleSource: (String) -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
     onToggleReader: (Boolean) -> Unit,
     onToggleDesktop: (Boolean) -> Unit,
     onToggleKeepAwake: (Boolean) -> Unit,
@@ -718,6 +783,13 @@ private fun WebSettingsSheet(
                 title = "Chặn quảng cáo",
                 checked = state.adBlockEnabled,
                 onCheckedChange = { onToggleAds() },
+            )
+            RowDivider()
+            ToggleRow(
+                title = "Tự động dịch",
+                subtitle = "Bắt đầu sau khi trang tải xong, dò thêm ảnh mới",
+                checked = state.autoTranslate,
+                onCheckedChange = onToggleAuto,
             )
             RowDivider()
             ToggleRow(

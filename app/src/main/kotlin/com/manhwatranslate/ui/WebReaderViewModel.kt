@@ -21,6 +21,7 @@ data class WebReaderUiState(
     val blockerSources: Set<String> = emptySet(),
     val blockerCounts: Map<String, Int> = emptyMap(),
     val blockerReady: Boolean = false,
+    val autoTranslate: Boolean = true,
     val readerMode: Boolean = true,
     val desktopMode: Boolean = false,
     val keepAwake: Boolean = true,
@@ -108,6 +109,7 @@ class WebReaderViewModel(
                 settings = value
                 container.adBlocker.setEnabledSources(value.webBlockerSources)
                 _state.value = _state.value.copy(
+                    autoTranslate = value.webAutoTranslate,
                     adBlockEnabled = value.webBlockAds,
                     blockerSources = value.webBlockerSources,
                     readerMode = value.webReaderMode,
@@ -154,21 +156,22 @@ class WebReaderViewModel(
         bridge.setPageUrl(url)
     }
 
-    /** Queues the images the reader found on the page; the bridge reports back as they finish. */
+    /**
+     * Queues the images the reader found on the page; the bridge reports back as they finish.
+     * A scan that runs while the chapter is still being translated only adds to the batch — the
+     * counters come from the bridge, so the bar keeps moving instead of restarting.
+     */
     fun translatePageImages(images: List<PageImage>, pageUrl: String) {
         if (images.isEmpty()) {
-            _state.value = _state.value.copy(
-                message = "Không tìm thấy ảnh truyện nào trên trang này",
-            )
+            if (!_state.value.translating && _state.value.totalImages == 0) {
+                _state.value = _state.value.copy(
+                    message = "Không tìm thấy ảnh truyện nào trên trang này",
+                )
+            }
             return
         }
         bridge.setPageUrl(pageUrl)
-        _state.value = _state.value.copy(
-            translating = true,
-            totalImages = images.size,
-            translatedCount = 0,
-            failedCount = 0,
-        )
+        _state.value = _state.value.copy(translating = true)
         bridge.translate(images)
     }
 
@@ -202,6 +205,11 @@ class WebReaderViewModel(
         }
         container.adBlocker.setEnabledSources(next)
         _state.value = _state.value.copy(blockerSources = next)
+    }
+
+    fun setAutoTranslate(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(webAutoTranslate = enabled) } }
+        _state.value = _state.value.copy(autoTranslate = enabled)
     }
 
     fun setReaderMode(enabled: Boolean) {
