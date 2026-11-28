@@ -10,8 +10,10 @@ import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.FontStore
 import com.manhwatranslate.data.ImageStore
 import com.manhwatranslate.data.ProjectStore
+import com.manhwatranslate.auth.GoogleAuthManager
 import com.manhwatranslate.data.SecretsStore
 import com.manhwatranslate.data.SettingsRepository
+import com.manhwatranslate.data.UserSessionStore
 import com.manhwatranslate.pipeline.TranslationEngine
 import com.manhwatranslate.render.AndroidTextMeasurer
 import com.manhwatranslate.render.CanvasPageCompositor
@@ -43,6 +45,13 @@ class AppContainer(context: Context) {
 
     val settingsRepository = SettingsRepository(appContext)
     val secretsStore = SecretsStore(appContext)
+    val userSessionStore = UserSessionStore(appContext)
+    val googleAuth = GoogleAuthManager(
+        context = appContext,
+        sessionStore = userSessionStore,
+        scope = appScope,
+        webClientId = appContext.getString(com.manhwatranslate.R.string.default_web_client_id),
+    )
     val imageStore = ImageStore(appContext)
     val projectStore = ProjectStore(appContext, imageStore)
     val fontStore = FontStore(appContext)

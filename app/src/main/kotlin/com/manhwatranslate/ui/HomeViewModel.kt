@@ -9,6 +9,7 @@ import com.manhwatranslate.core.model.PipelineProgress
 import com.manhwatranslate.core.model.PipelineStage
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.data.SavedPage
+import com.manhwatranslate.data.UserProfile
 import com.manhwatranslate.di.AppContainer
 import com.manhwatranslate.translate.TranslationException
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +37,7 @@ data class HomeUiState(
     val settings: AppSettings = AppSettings(),
     val pages: List<SavedPage> = emptyList(),
     val processing: ProcessingState? = null,
+    val user: UserProfile = UserProfile(),
 )
 
 sealed interface HomeEvent {
@@ -67,6 +69,19 @@ class HomeViewModel(
                 _state.value = _state.value.copy(pages = pages)
             }
         }
+        viewModelScope.launch {
+            container.googleAuth.load()
+        }
+        viewModelScope.launch {
+            container.googleAuth.user.collect { user ->
+                _state.value = _state.value.copy(user = user)
+            }
+        }
+    }
+
+    fun signOut() {
+        container.googleAuth.signOut()
+        _events.tryEmit(HomeEvent.Message("Đã đăng xuất khỏi Google"))
     }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
