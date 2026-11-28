@@ -150,6 +150,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.okhttp.mockwebserver)
 }
 
 tasks.withType<Test>().configureEach {

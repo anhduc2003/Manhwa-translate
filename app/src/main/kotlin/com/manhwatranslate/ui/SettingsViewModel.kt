@@ -9,8 +9,6 @@ import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.data.AppSettings
 import com.manhwatranslate.di.AppContainer
 import com.manhwatranslate.translate.DownloadProgress
-import com.manhwatranslate.translate.HttpJson
-import com.manhwatranslate.translate.ModelDownloader
 import com.manhwatranslate.translate.FreeProviders
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,8 +30,6 @@ class SettingsViewModel(
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
-
-    private val modelDownloader = ModelDownloader(getApplication(), HttpJson.client)
 
     init {
         viewModelScope.launch {
@@ -201,10 +197,10 @@ class SettingsViewModel(
             return
         }
         if (_state.value.downloadingModel) return
-        viewModelScope.launch {
+        container.appScope.launch {
             _state.value = _state.value.copy(downloadingModel = true, downloadProgress = DownloadProgress())
             runCatching {
-                modelDownloader.download(url) { progress ->
+                container.modelDownloader.download(url) { progress ->
                     _state.value = _state.value.copy(downloadProgress = progress)
                 }
             }.onSuccess { model ->

@@ -1,6 +1,9 @@
 package com.manhwatranslate.di
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.manhwatranslate.core.model.TranslationProviderType
 import com.manhwatranslate.core.translate.TranslationProvider
 import com.manhwatranslate.data.AppSettings
@@ -20,6 +23,7 @@ import com.manhwatranslate.translate.GoogleFreeTranslationProvider
 import com.manhwatranslate.translate.LibreTranslateProvider
 import com.manhwatranslate.translate.LocalLlmTranslationProvider
 import com.manhwatranslate.translate.MlKitTranslationProvider
+import com.manhwatranslate.translate.ModelDownloader
 import com.manhwatranslate.translate.MyMemoryTranslationProvider
 import com.manhwatranslate.translate.OpenAiTranslationProvider
 import com.manhwatranslate.core.model.OcrProviderType
@@ -31,6 +35,11 @@ import com.manhwatranslate.vision.PaddleOcrRecognizer
 class AppContainer(context: Context) {
 
     private val appContext = context.applicationContext
+
+    /** App-wide scope so a model download keeps going if the user leaves the settings screen. */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    val modelDownloader = ModelDownloader(appContext, ModelDownloader.client())
 
     val settingsRepository = SettingsRepository(appContext)
     val secretsStore = SecretsStore(appContext)
