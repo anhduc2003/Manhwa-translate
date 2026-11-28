@@ -25,6 +25,22 @@ class Java2DCompositor(private val measurer: AwtTextMeasurer) : PageCompositor {
 
     private fun draw(graphics: Graphics2D, item: RenderItem) {
         val layout = item.layout
+        val turned = item.rotationDegrees
+        if (turned != 0f) {
+            val previous = graphics.transform
+            graphics.rotate(Math.toRadians(turned.toDouble()), layout.box.centerX.toDouble(), layout.box.centerY.toDouble())
+            try {
+                drawBody(graphics, item)
+            } finally {
+                graphics.transform = previous
+            }
+            return
+        }
+        drawBody(graphics, item)
+    }
+
+    private fun drawBody(graphics: Graphics2D, item: RenderItem) {
+        val layout = item.layout
         val style = item.style
         val font = measurer.font(layout.textSizePx, layout.font)
         val context = graphics.fontRenderContext

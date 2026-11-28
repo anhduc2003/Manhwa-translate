@@ -26,6 +26,8 @@ import com.manhwatranslate.core.model.TranslationLanguage
 import com.manhwatranslate.core.render.PageCompositor
 import com.manhwatranslate.core.render.RenderItem
 import com.manhwatranslate.core.render.RenderStyle
+import com.manhwatranslate.core.image.ImageRotation
+import com.manhwatranslate.core.image.rotated
 import com.manhwatranslate.core.scan.ImageTiler
 import com.manhwatranslate.core.scan.ImageTile
 import com.manhwatranslate.core.scan.RegionGrouper
@@ -47,6 +49,11 @@ data class PipelineOptions(
     val eraseMode: EraseMode = EraseMode.AUTO,
     val render: RenderStyle = RenderStyle(),
     val minLetterCount: Int = 1,
+    /**
+     * Angles, in degrees, that the page is turned by to read lettering drawn along a slant.
+     * Each extra angle costs one more OCR pass over every tile; an empty list turns the retry off.
+     */
+    val rotationAngles: List<Float> = emptyList(),
     val maxTileHeight: Int = ImageTiler.DEFAULT_MAX_TILE_HEIGHT,
     val tileOverlap: Int = ImageTiler.DEFAULT_OVERLAP,
     val keepOriginalWhenFailed: Boolean = true,
@@ -527,8 +534,66 @@ class TranslationPipeline(
                 retryWithBackup(error, turned, options.script, warnings, index)
             }
             raw += if (pageOffsetY == 0) found else found.map { it.translated(0, -pageOffsetY) }
+            raw += readTilted(tile, options, pageOffsetY)
         }
-        return raw
+        return dedupe(raw)
+    }
+
+    /**
+     * Reads the tile again turned by each configured angle, and maps what comes back onto the
+     * page with the angle it was found at. A slanted bubble produces nothing at zero degrees, so
+     * without this pass it is neither erased nor translated.
+     */
+    private suspend fun readTilted(
+        tile: ImageTile,
+        options: PipelineOptions,
+        pageOffsetY: Int,
+    ): List<TextRegion> {
+        if (options.rotationAngles.isEmpty()) return emptyList()
+        val found = ArrayList<TextRegion>()
+        for (angle in options.rotationAngles) {
+            val rotation = ImageRotation.of(tile.image, angle)
+            val turned = ImageTile(tile.index, tile.rect, tile.image.rotated(rotation))
+            val regions = try {
+                activeRecognizer.recognize(turned, options.script)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                emptyList()
+            }
+            for (region in regions) {
+                val box = rotation.toSource(region.box)
+                if (box.width < 8 || box.height < 8) continue
+                val lines = region.lines.map { it.copy(box = rotation.toSource(it.box)) }
+                val mapped = region.copy(
+                    box = box,
+                    lines = lines,
+                    rotationDegrees = -angle,
+                )
+                found += if (pageOffsetY == 0) mapped else mapped.translated(0, -pageOffsetY)
+            }
+        }
+        return found
+    }
+
+    /** Drops a region another pass already reported in the same place, keeping the first. */
+    private fun dedupe(regions: List<TextRegion>): List<TextRegion> {
+        val kept = ArrayList<TextRegion>(regions.size)
+        for (region in regions) {
+            val duplicate = kept.any { other -> overlaps(other.box, region.box) > 0.45f }
+            if (!duplicate) kept += region
+        }
+        return kept
+    }
+
+    private fun overlaps(a: com.manhwatranslate.core.geometry.RectI, b: com.manhwatranslate.core.geometry.RectI): Float {
+        val left = maxOf(a.left, b.left)
+        val top = maxOf(a.top, b.top)
+        val right = minOf(a.right, b.right)
+        val bottom = minOf(a.bottom, b.bottom)
+        if (right <= left || bottom <= top) return 0f
+        val intersection = (right - left).toFloat() * (bottom - top).toFloat()
+        val smallest = minOf(a.width.toFloat() * a.height.toFloat(), b.width.toFloat() * b.height.toFloat())
+        return if (smallest <= 0f) 0f else intersection / smallest
     }
 
     private suspend fun retryWithBackup(
@@ -739,7 +804,7 @@ class TranslationPipeline(
                 else -> translation.translatedText
             }
             if (text.isBlank()) continue
-            items += RenderItem(layoutFor(region, text, options), options.render)
+            items += RenderItem(layoutFor(region, text, options), options.render, region.rotationDegrees)
         }
         onPlanned(items.size)
         return compositor.compose(cleaned.copy(), items)
