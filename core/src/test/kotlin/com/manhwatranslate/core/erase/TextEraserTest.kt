@@ -148,6 +148,76 @@ class TextEraserTest {
     }
 
     @Test
+    fun `a box that reaches past the bubble does not paint the panel behind it`() {
+        val width = 360
+        val height = 240
+        val image = ArgbImage.filled(width, height, Colors.opaque(28, 30, 36))
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val dx = (x - 180) / 120.0
+                val dy = (y - 120) / 75.0
+                if (dx * dx + dy * dy <= 1.0) image.set(x, y, Colors.opaque(250, 250, 250))
+            }
+        }
+        // Lettering inside the bubble, in a box wider than the bubble is: its ends cover the
+        // dark panel on either side, and a fitted paper colour over those end pixels used to
+        // leave a light block on the artwork.
+        for (y in 100 until 112) {
+            for (x in 90 until 270) {
+                if ((x / 9) % 2 == 0) image.set(x, y, Colors.opaque(16, 16, 16))
+            }
+        }
+        val box = RectI(50, 80, 310, 160)
+        val mask = requireNotNull(builder.build(image, region(box)))
+        TextEraser(EraseOptions()).erase(image, mask)
+
+        var panelPainted = 0
+        for (y in box.top until box.bottom) {
+            for (x in box.left until box.right) {
+                val dx = (x - 180) / 120.0
+                val dy = (y - 120) / 75.0
+                if (dx * dx + dy * dy <= 1.05) continue
+                if (Colors.luminance(image.get(x, y)) > 120f) panelPainted++
+            }
+        }
+        assertTrue(panelPainted == 0, "the panel behind the bubble was painted over ($panelPainted px)")
+        assertTrue(Colors.luminance(image.get(90, 105)) > 200f, "the lettering inside the bubble must go")
+    }
+
+    @Test
+    fun `a dark bubble box that reaches onto a light page leaves the page alone`() {
+        val width = 360
+        val height = 240
+        val image = ArgbImage.filled(width, height, Colors.opaque(238, 238, 240))
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val dx = (x - 180) / 120.0
+                val dy = (y - 120) / 75.0
+                if (dx * dx + dy * dy <= 1.0) image.set(x, y, Colors.opaque(24, 24, 30))
+            }
+        }
+        for (y in 100 until 112) {
+            for (x in 90 until 270) {
+                if ((x / 9) % 2 == 0) image.set(x, y, Colors.opaque(244, 244, 244))
+            }
+        }
+        val box = RectI(50, 80, 310, 160)
+        val mask = requireNotNull(builder.build(image, region(box)))
+        TextEraser(EraseOptions()).erase(image, mask)
+
+        var pageDarkened = 0
+        for (y in box.top until box.bottom) {
+            for (x in box.left until box.right) {
+                val dx = (x - 180) / 120.0
+                val dy = (y - 120) / 75.0
+                if (dx * dx + dy * dy <= 1.05) continue
+                if (Colors.luminance(image.get(x, y)) < 150f) pageDarkened++
+            }
+        }
+        assertTrue(pageDarkened == 0, "the page around the bubble was painted dark ($pageDarkened px)")
+    }
+
+    @Test
     fun `erasing outside the mask never happens`() {
         val image = bubblePage()
         val mask = requireNotNull(builder.build(image, region()))

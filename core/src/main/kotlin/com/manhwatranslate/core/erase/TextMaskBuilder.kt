@@ -16,6 +16,20 @@ import com.manhwatranslate.core.model.TextRegion
  */
 private const val QUIET_PAPER_TEXTURE = 6f
 
+/** Least reach of a stroke into the paper, so a thin line still has room for its own ink. */
+private const val MIN_STROKE_REACH = 4f
+
+/** Heaviest stroke weight the reach follows; a bolder line is treated as this heavy. */
+private const val MAX_STROKE_REACH = 14f
+
+/**
+ * How many times deeper than the tightest mass a mass has to sit before it is thrown away as
+ * artwork rather than kept as lettering.
+ */
+private const val OUTLIER_FACTOR = 2.5f
+
+
+
 class TextMaskBuilder(
     val options: Options = Options(),
 ) {
@@ -152,6 +166,10 @@ class TextMaskBuilder(
         val metrics = InkAnalyzer.analyze(mask, width, height)
         Morphology.close(mask, width, height, options.closingRadius)
         Morphology.dilate(mask, width, height, options.dilation)
+        dropMassesNestedInArtwork(
+            mask, pixels, width, height, backgroundAt,
+            options.globalTolerance, options.dilation, metrics.strokeWidthPx,
+        )
         if (Morphology.countSet(mask) == 0) return null
 
         return TextMask(
@@ -218,6 +236,128 @@ class TextMaskBuilder(
                     if (tail < queue.size) queue[tail++] = neighbour
                 }
             }
+        }
+    }
+
+    /**
+     * Drops the masses that are not lettering because there is no bubble paper around them.
+     *
+     * A text box that reaches past the bubble also covers the panel behind it, and a caption over
+     * artwork covers the artwork. Those pixels are as far from the paper as the letters are, so
+     * colour alone keeps them, and painting one fitted paper colour over them turns a block of
+     * the panel white. Lettering sits in paper, with paper within half a stroke on every side;
+     * the panel beside a bubble sits in panel. A region whose lettering lies straight on artwork
+     * has no paper near any of its strokes and is left alone rather than emptied.
+     */
+    private fun dropMassesNestedInArtwork(
+        mask: ByteArray,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        backgroundAt: (Int, Int) -> Int,
+        tolerance: Float,
+        dilation: Int,
+        strokeWidthPx: Float,
+    ) {
+        // A mask that swallowed a mass measures a huge stroke width, so the reach is capped: the
+        // limit follows the lettering weight, not the artwork the mask happened to take in.
+        val weight = minOf(strokeWidthPx, MAX_STROKE_REACH) * 0.6f
+        val nestingLimit = dilation + maxOf(MIN_STROKE_REACH, weight)
+        val paper = BooleanArray(mask.size)
+        var paperCount = 0
+        for (index in mask.indices) {
+            if (mask[index].toInt() != 0) continue
+            val x = index % width
+            val y = index / width
+            if (Colors.distance(pixels[index], backgroundAt(x, y)) > tolerance * 1.5f) continue
+            paper[index] = true
+            paperCount++
+        }
+        if (paperCount == 0) return
+
+        val distance = FloatArray(mask.size) { Float.MAX_VALUE }
+        val queue = IntArray(mask.size)
+        var head = 0
+        var tail = 0
+        for (index in mask.indices) {
+            if (!paper[index]) continue
+            distance[index] = 0f
+            queue[tail++] = index
+        }
+        while (head < tail) {
+            val index = queue[head++]
+            val next = distance[index] + 1f
+            val x = index % width
+            val y = index / width
+            if (x > 0 && next < distance[index - 1]) {
+                distance[index - 1] = next
+                queue[tail++] = index - 1
+            }
+            if (x < width - 1 && next < distance[index + 1]) {
+                distance[index + 1] = next
+                queue[tail++] = index + 1
+            }
+            if (y > 0 && next < distance[index - width]) {
+                distance[index - width] = next
+                queue[tail++] = index - width
+            }
+            if (y < height - 1 && next < distance[index + width]) {
+                distance[index + width] = next
+                queue[tail++] = index + width
+            }
+        }
+
+        val visited = BooleanArray(mask.size)
+        val masses = ArrayList<IntArray>()
+        val nesting = ArrayList<Float>()
+        val sorted = ArrayList<Float>()
+        for (start in mask.indices) {
+            if (mask[start].toInt() == 0 || visited[start]) continue
+            var massHead = 0
+            var massTail = 0
+            queue[massTail++] = start
+            visited[start] = true
+            val members = ArrayList<Int>()
+            while (massHead < massTail) {
+                val index = queue[massHead++]
+                members += index
+                val x = index % width
+                val y = index / width
+                if (x > 0 && mask[index - 1].toInt() != 0 && !visited[index - 1]) {
+                    visited[index - 1] = true
+                    queue[massTail++] = index - 1
+                }
+                if (x < width - 1 && mask[index + 1].toInt() != 0 && !visited[index + 1]) {
+                    visited[index + 1] = true
+                    queue[massTail++] = index + 1
+                }
+                if (y > 0 && mask[index - width].toInt() != 0 && !visited[index - width]) {
+                    visited[index - width] = true
+                    queue[massTail++] = index - width
+                }
+                if (y < height - 1 && mask[index + width].toInt() != 0 && !visited[index + width]) {
+                    visited[index + width] = true
+                    queue[massTail++] = index + width
+                }
+            }
+            val values = FloatArray(members.size) { distance[members[it]] }
+            values.sort()
+            val median = values[values.size / 2]
+            masses += members.toIntArray()
+            nesting += median
+            sorted += median
+        }
+        if (masses.isEmpty()) return
+        sorted.sort()
+        if (sorted[sorted.size / 2] > nestingLimit * 2f) return
+        // Only a mass that is both deeper than the lettering and several times deeper than the
+        // tightest mass on the page is artwork; a bold line sitting a little deeper than a thin
+        // one is still lettering.
+        val reference = sorted[(sorted.size * 0.25f).toInt().coerceIn(0, sorted.size - 1)]
+        for (index in masses.indices) {
+            if (nesting[index] <= nestingLimit) continue
+            if (nesting[index] <= reference * OUTLIER_FACTOR) continue
+            for (pixel in masses[index]) mask[pixel] = 0
         }
     }
 
