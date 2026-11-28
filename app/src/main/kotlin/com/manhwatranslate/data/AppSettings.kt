@@ -26,6 +26,8 @@ data class AppSettings(
     val fontWeight: FontWeightLevel? = null,
     val autoSizeFromOriginal: Boolean = true,
     val customFontName: String = "",
+    /** File name inside the bundled pack, used when the reader picks one of the shipped faces. */
+    val bundledFont: String = "",
     val sfxSensitivity: SfxSensitivity = SfxSensitivity.LOW,
     val matchBackgroundColor: Boolean = true,
     val autoContrast: Boolean = true,

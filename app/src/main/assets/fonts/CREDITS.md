@@ -21,3 +21,10 @@ All of them cover the full Vietnamese alphabet with diacritics.
 
 The fonts belong to their authors, not to this project. If you fork the app, keep this file and
 the credit above with the fonts, and check the pack's own terms before republishing the APK.
+
+## The rest of the pack
+
+`library/` carries every other face from the same "Font Truyện Tranh Teddy" pack: forty faces,
+renamed to their pack names without the `000`/`iCiel` prefixes so they can be listed in the app.
+They are offered as a choice in Settings → Phông chữ rather than being picked automatically, so a
+page keeps one lettering instead of jumping between faces.

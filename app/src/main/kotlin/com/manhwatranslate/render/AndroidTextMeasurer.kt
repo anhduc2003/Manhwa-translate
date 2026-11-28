@@ -22,6 +22,16 @@ class AndroidTextMeasurer(
     var customTypeface: Typeface? = null
         private set
 
+    /** A face the reader picked from the pack that ships with the app. */
+    var bundledTypeface: Typeface? = null
+        private set
+
+    fun setBundledTypeface(typeface: Typeface?) {
+        bundledTypeface = typeface
+        typefaces.clear()
+        paints.clear()
+    }
+
     fun setCustomTypeface(typeface: Typeface?) {
         customTypeface = typeface
         typefaces.clear()
@@ -35,7 +45,7 @@ class AndroidTextMeasurer(
             val style = if (font.italic) Typeface.ITALIC else Typeface.NORMAL
             val base = when (font.family) {
                 FontFamilyKind.CUSTOM ->
-                    return@getOrPut customTypeface ?: manhwa(font) ?: Typeface.SANS_SERIF
+                    return@getOrPut bundledTypeface ?: customTypeface ?: manhwa(font) ?: Typeface.SANS_SERIF
                 FontFamilyKind.MONOSPACE -> Typeface.create("monospace", style)
                 else -> manhwa(font) ?: Typeface.create(systemFamily(font.family), style)
             }
