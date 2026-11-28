@@ -30,11 +30,11 @@ class RotatedLetteringTest {
     private val height = 300
 
     /** A bar of [length] by [thickness] pixels, drawn [degrees] off level around the centre. */
-    private fun page(degrees: Double): ArgbImage {
+    private fun page(degrees: Double, centerY: Double = height / 2.0): ArgbImage {
         val image = ArgbImage.filled(width, height, Colors.opaque(255, 255, 255))
         val radians = Math.toRadians(degrees)
         val cx = width / 2.0
-        val cy = height / 2.0
+        val cy = centerY
         for (step in -60..60) {
             val x = cx + step * 1.4 * cos(radians)
             val y = cy + step * 1.4 * sin(radians)
@@ -85,6 +85,83 @@ class RotatedLetteringTest {
         }
     }
 
+    /** Behaves like the Android recognizer: boxes come back offset by the tile's own position. */
+    private object OffsetAddingRecognizer : TileRecognizer {
+        override suspend fun recognize(tile: ImageTile, script: SourceScript): List<TextRegion> {
+            val image = tile.image
+            var minY = Int.MAX_VALUE
+            var maxY = -1
+            var minX = Int.MAX_VALUE
+            var maxX = -1
+            for (y in 0 until image.height) {
+                for (x in 0 until image.width) {
+                    if (Colors.luminance(image.get(x, y)) < 120f) {
+                        if (y < minY) minY = y
+                        if (y > maxY) maxY = y
+                        if (x < minX) minX = x
+                        if (x > maxX) maxX = x
+                    }
+                }
+            }
+            if (maxY < 0 || (maxY - minY) > 40 || (maxX - minX) < 100) return emptyList()
+            val box = RectI(
+                minX + tile.rect.left,
+                minY + tile.rect.top,
+                maxX + tile.rect.left,
+                maxY + tile.rect.top,
+            )
+            return listOf(
+                TextRegion(0, box, listOf(TextLine(box, "HELLO")), "HELLO"),
+            )
+        }
+    }
+
+    @Test
+    fun `a region found in a turned tile lands on the page, not beside it`() {
+        val compositor = CapturingCompositor()
+        val pipeline = TranslationPipeline(
+            recognizer = OffsetAddingRecognizer,
+            translationService = TranslationService(
+                object : TranslationProvider {
+                    override val id = "test"
+                    override val displayName = "Test"
+                    override suspend fun translate(
+                        texts: List<String>,
+                        sourceLanguage: SourceScript,
+                        target: TranslationLanguage,
+                    ): List<String> = texts.map { "XIN CHAO" }
+                },
+            ),
+            measurer = com.manhwatranslate.core.layout.FakeMonospaceMeasurer(),
+            compositor = compositor,
+        )
+
+        val result = runBlocking {
+            pipeline.process(
+                page(degrees = 20.0, centerY = 200.0),
+                PipelineOptions(
+                    script = SourceScript.LATIN,
+                    rotationAngles = listOf(24f),
+                    maxTileHeight = 180,
+                    sfxSensitivity = com.manhwatranslate.core.scan.SfxSensitivity.OFF,
+                ),
+            )
+        }
+
+        assertTrue(result.regions.isNotEmpty(), "the turned pass should have found the line")
+        val region = result.regions.first()
+        // The line sits at the middle of the second tile; a box that forgot the tile's own offset
+        // lands a tile-height above it, which is how the phantom boxes appeared beside the page.
+        assertTrue(
+            kotlin.math.abs(region.box.centerY - 200) < 25,
+            "region landed at ${region.box}, the line is at y=200",
+        )
+        assertTrue(
+            kotlin.math.abs(region.box.centerX - width / 2) < 25,
+            "region landed at ${region.box}, the line is at x=${width / 2}",
+        )
+    }
+
     private class CapturingCompositor : PageCompositor {
         val items = ArrayList<RenderItem>()
         override fun compose(page: ArgbImage, items: List<RenderItem>): ArgbImage {
@@ -116,7 +193,11 @@ class RotatedLetteringTest {
         val result = runBlocking {
             pipeline(compositor).process(
                 page(degrees = 20.0),
-                PipelineOptions(script = SourceScript.LATIN, rotationAngles = listOf(-24f, 24f)),
+                PipelineOptions(
+                    script = SourceScript.LATIN,
+                    rotationAngles = listOf(-24f, 24f),
+                    sfxSensitivity = com.manhwatranslate.core.scan.SfxSensitivity.OFF,
+                ),
             )
         }
 
